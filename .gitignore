@@ -1,5 +1,4 @@
-# Mine
-tests_learn_cv/
+*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
