@@ -84,6 +84,10 @@ class LandmarkHandler:
 
     @classmethod
     def _preprocess_scale(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
+        """
+        Apply scale normalization by dividing all landmarks by the
+        wrist-to-middle-finger Euclidean distance per frame.
+        """
 
         landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
         
@@ -113,6 +117,11 @@ class LandmarkHandler:
     
     @classmethod
     def _preprocess_position(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
+        """
+        Subtract the wrist coordinates from all landmarks in each frame
+        to normalize position and set the wrist as the origin.
+        """
+
         landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
         
         # columns for wrist
