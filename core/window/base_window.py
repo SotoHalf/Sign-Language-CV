@@ -5,10 +5,31 @@ import numpy as np
 
 class BaseWindow(QWidget):
 
-    DEFAULT_TIMER = 30
+    """
+    Base window for displaying video frames or images in a Qt application.
 
-    def __init__(self, width=800, height=600):
+    Provides a reusable widget with a display label and an action button.
+    Subclasses must implement `get_frame()` to supply the frame data.
+    An optional frame processor can be injected to modify frames before display.
+    """
+
+    DEFAULT_TIMER = 30 # Default timer interval for update frame 1000ms/30 # FPS
+
+    def __init__(self, width=800, height=600, frame_processor=None):
+        """
+        Initialize the BaseWindow.
+
+        :param width: Initial width of the window, defaults to 800
+        :type width: int
+        :param height: Initial height of the window, defaults to 600
+        :type height: int
+        :param frame_processor: Optional object with a `process(frame)` method,
+                                defaults to None
+        :type frame_processor: object, optional
+        """
         super().__init__()
+
+        self.frame_processor = frame_processor
 
         # -----------------------------
         # Window and Styles
@@ -51,7 +72,7 @@ class BaseWindow(QWidget):
         self.display_label = QLabel()
         self.display_label.setAlignment(Qt.AlignCenter)
         self.display_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.display_label.setMinimumSize(1, 1)  # Permite que se encoja si es necesario
+        self.display_label.setMinimumSize(1, 1)
         # self.display_label.setAttribute(Qt.WA_TransparentForMouseEvents)  #avoid events
         main_layout.addWidget(self.display_label)
 
@@ -74,8 +95,15 @@ class BaseWindow(QWidget):
     # -----------------------------
 
     def _update_frame(self):
+        """
+        Internal slot called by the timer.
+        Retrieves a frame via `get_frame()`, applies the processor if available,
+        and displays it. If no frame is returned, shows a black frame.
+        """
         frame = self.get_frame()
         if frame is not None:
+            if self.frame_processor is not None:
+                frame = self.frame_processor.process(frame)
             self._show_frame(frame)
         else:
             # default frame
@@ -83,6 +111,13 @@ class BaseWindow(QWidget):
             self._show_frame(default_frame)
 
     def _show_frame(self, frame):
+        """
+        Convert a numpy RGB frame to QPixmap and display it on the label,
+        scaled to fit while preserving aspect ratio.
+
+        :param frame: RGB image as a numpy array of shape (height, width, 3)
+        :type frame: np.ndarray
+        """
         h, w, ch = frame.shape
         bytes_per_line = ch * w
 
@@ -108,19 +143,28 @@ class BaseWindow(QWidget):
 
     def get_frame(self):
         """
-        It should return a frame RGB ndarray (h, w, ch)
+        Retrieve the current frame to be displayed.
+
+        Must be implemented by subclasses.
+
+        :return: RGB frame as a numpy array of shape (height, width, 3)
+        :rtype: np.ndarray
+        :raises NotImplementedError: If the subclass does not implement this method.
         """
         raise NotImplementedError("Implement get_frame() in the child class")
 
     def setup(self):
         """
-        Optional: initialize things like camera, image, etc ...
+        Optional initialization hook.
+        Called once after the widget is constructed.
+        Subclasses can override to set up resources like cameras or files.
         """
         pass
 
     def cleanup(self):
         """
-        Optional: used to release resources like camera, image, etc ...
+        Optional cleanup hook.
+        Called when the window is closed. Subclasses should release resources here.
         """
         pass
 
@@ -129,10 +173,24 @@ class BaseWindow(QWidget):
     # -----------------------------
 
     def closeEvent(self, event):
+        """
+        Handle the window close event.
+        Calls `cleanup()` before accepting the close event.
+
+        :param event: The close event
+        :type event: QCloseEvent
+        """
         self.cleanup()
         event.accept()
 
     def keyPressEvent(self, event):
+        """
+        Handle key press events.
+        Closes the window on Escape key or Ctrl+C.
+
+        :param event: The key event
+        :type event: QKeyEvent
+        """
         if event.key() == Qt.Key_Escape:
             self.close()
         elif event.key() == Qt.Key_C and event.modifiers() & Qt.ControlModifier:
