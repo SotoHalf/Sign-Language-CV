@@ -1,7 +1,8 @@
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QPushButton, QHBoxLayout, QSizePolicy
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont
 from PySide6.QtCore import QTimer, Qt
 import numpy as np
+import time
 
 class BaseWindow(QWidget):
 
@@ -82,8 +83,14 @@ class BaseWindow(QWidget):
         self.frame_height = height
         self.resize(width, height)
 
+        #FPS
+        self._last_time = time.perf_counter()
+        self._fps = 0
+        self._frame_count = 0
+
         # Timer
         self.timer = QTimer()
+        self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.timeout.connect(self._update_frame)
         self.timer.start(BaseWindow.DEFAULT_TIMER)
 
@@ -94,22 +101,55 @@ class BaseWindow(QWidget):
     # Main label manage
     # -----------------------------
 
+    def draw_fps(self, scaled_pixmap):
+        # Draw FPS overlay
+        painter = QPainter(scaled_pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        font = QFont("Arial", 14, QFont.Bold)
+        painter.setFont(font)
+
+        painter.setPen(QColor(0, 255, 0))
+        painter.drawText(10, 25, f"{self._fps} FPS")
+
+        painter.end()
+
+    
     def _update_frame(self):
-        """
+        '''
         Internal slot called by the timer.
         Retrieves a frame via `get_frame()`, applies the processor if available,
         and displays it. If no frame is returned, shows a black frame.
-        """
-        frame = self.get_frame()
-        if frame is not None:
-            if self.frame_processor is not None:
-                frame = self.frame_processor.process(frame)
-            self._show_frame(frame)
-        else:
-            # default frame
-            default_frame = np.zeros((self.display_label.height(), self.display_label.width(), 3), dtype=np.uint8)
-            self._show_frame(default_frame)
+        '''
+        # in case one frame is being processed skip one tick
+        if self._processing_frame:
+            return
 
+        self._processing_frame = True
+        try:
+            frame = self.get_frame()
+
+            # FPS CALCULATION
+            self._frame_count += 1
+            current_time = time.perf_counter()
+            elapsed = current_time - self._last_time
+
+            if elapsed >= 1.0:
+                self._fps = round(self._frame_count / elapsed)
+                self._frame_count = 0
+                self._last_time = current_time
+
+            if frame is not None:
+                if self.frame_processor is not None:
+                    frame = self.frame_processor.process(frame)
+                self._show_frame(frame)
+            else:
+                # default frame
+                default_frame = np.zeros((self.display_label.height(), self.display_label.width(), 3), dtype=np.uint8)
+                self._show_frame(default_frame)
+        finally:
+              self._processing_frame = False
+        
     def _show_frame(self, frame):
         """
         Convert a numpy RGB frame to QPixmap and display it on the label,
@@ -135,6 +175,7 @@ class BaseWindow(QWidget):
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation
             )
+            self.draw_fps(scaled_pixmap)
             self.display_label.setPixmap(scaled_pixmap)
 
     # -----------------------------

@@ -2,6 +2,7 @@
 *.mp4
 *.png
 *.task
+resources_test/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

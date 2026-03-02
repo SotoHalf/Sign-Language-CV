@@ -1,5 +1,6 @@
 import os
-import cv2 as cv
+import time
+import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -44,8 +45,9 @@ class HandTracker:
         self.min_detection_confidence = min_detection_confidence
         self.min_tracking_confidence = min_tracking_confidence
 
-        # load model .task
         base_options = python.BaseOptions(model_asset_path=model_path)
+
+        # load model .task
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
             running_mode=vision.RunningMode.VIDEO,
@@ -54,41 +56,58 @@ class HandTracker:
             min_hand_presence_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
-        
+
         self.detector = vision.HandLandmarker.create_from_options(options)
 
     @staticmethod
     def normalizedToPixelCoordenates(frame: np.ndarray, landmark: Any):
         h, w, _ = frame.shape
-        px, py = int(landmark.x * w), int(landmark.y * h)
+        #px, py = int(landmark.x * w), int(landmark.y * h)
+        px = min(max(int(landmark.x * w), 0), w-1)
+        py = min(max(int(landmark.y * h), 0), h-1)
         return px, py
 
     def findHands(self, frame: np.ndarray, draw: bool = True) -> np.ndarray:
-        #Hands only uses RGB images and cv by default use BGR
-        rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        
+    
+        # Resize to improve acceleration
+        h, w = frame.shape[:2]
+        if w > 640:
+            scale = 640 / w
+            new_w, new_h = 640, int(h * scale)
+            frame_small = cv2.resize(frame, (new_w, new_h))
+        else:
+            frame_small = frame
+            scale = 1.0
+
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_small)
+
         # Detect
-        detection_result = self.detector.detect_for_video(mp_image, int(cv.getTickCount()))
+        timestamp_ms = int(time.time() * 1000)
+        detection_result = self.detector.detect_for_video(mp_image, timestamp_ms)
         self.results = detection_result
-        
+
         if draw and detection_result.hand_landmarks:
             for hand_landmarks in detection_result.hand_landmarks:
-                # Draw connections
+                # Draw Hand connections between points
                 for connection in HAND_CONNECTIONS:
                     start_idx, end_idx = connection
                     start = hand_landmarks[start_idx]
                     end = hand_landmarks[end_idx]
-                    
-                    start_point = HandTracker.normalizedToPixelCoordenates(frame, start)
-                    end_point = HandTracker.normalizedToPixelCoordenates(frame, end)
-                    cv.line(frame, start_point, end_point, (0, 255, 0), 2)
-                
-                # Draw dots
+
+                    # Scale coordinates to the original frame size
+                    x1 = int(start.x * w)
+                    y1 = int(start.y * h)
+                    x2 = int(end.x * w)
+                    y2 = int(end.y * h)
+
+                    cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+                # Draw landmark points
                 for lm in hand_landmarks:
-                    px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
-                    cv.circle(frame, (px, py), 5, (255, 0, 255), cv.FILLED)
-        
+                    x = int(lm.x * w)
+                    y = int(lm.y * h)
+                    cv2.circle(frame, (x, y), 5, (255, 0, 255), cv2.FILLED)
+
         return frame
 
     def findPosition(
@@ -104,7 +123,7 @@ class HandTracker:
                 px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
                 lmList.append([id, px, py])
                 if draw:
-                    cv.circle(frame, (px, py), 10, (255, 255, 0), cv.FILLED)
+                    cv2.circle(frame, (px, py), 10, (255, 255, 0), cv2.FILLED)
         return lmList
 
     def exportLandmarks(
@@ -117,11 +136,10 @@ class HandTracker:
             
             hand_landmarks = self.results.hand_landmarks[hand_id]
             for lm in hand_landmarks:
-                print([lm.x, lm.y, lm.z])
                 landmarksPosition.append([lm.x, lm.y, lm.z])
                 if draw:
                     px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
-                    cv.circle(frame, (px, py), 10, (255, 255, 0), cv.FILLED)
+                    cv2.circle(frame, (px, py), 10, (255, 255, 0), cv.FILLED)
         return landmarksPosition
 
     def getHandedness(self) -> list:
@@ -129,89 +147,6 @@ class HandTracker:
         if hasattr(self, 'results') and self.results and self.results.handedness:
             return [hand[0].category_name for hand in self.results.handedness]
         return []
-
-
-"""
-
-class HandTracker:
-    def __init__(
-        self,
-        max_hands: int = 2,
-        model_complexity: float = 1,
-        min_detection_confidence: float = 0.5,
-        min_tracking_confidence: float = 0.5,
-    ) -> None:
-        
-        self.max_hands = max_hands
-        self.model_complexity = model_complexity
-        self.min_detection_confidence = min_detection_confidence
-        self.min_tracking_confidence = min_tracking_confidence
-
-        # MediaPipe Hands object
-        #https://mediapipe.readthedocs.io/en/latest/solutions/hands.html
-        self.mpHands = mp.solutions.hands
-        self.hands = self.mpHands.Hands(
-            max_num_hands=self.max_hands,
-            model_complexity=self.model_complexity,
-            min_detection_confidence=self.min_detection_confidence,
-            min_tracking_confidence=self.min_tracking_confidence,
-        )
-        self.mpDraw = mp.solutions.drawing_utils
-
-    #convert normalized [0,1] to pixel coordenates
-    @staticmethod
-    def normalizedToPixelCoordenates(frame: np.ndarray, landmark: Any):
-        h, w, _ = frame.shape
-        px, py = int(landmark.x * w), int(landmark.y * h)
-        return px, py
-
-    def findHands(self, frame: np.ndarray, draw: bool = True) -> np.ndarray:
-        #Hands only uses RGB images and cv by default use BGR
-        frameRGB = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-        self.results = self.hands.process(frameRGB)
-
-        if self.results.multi_hand_landmarks:
-            for handLms in self.results.multi_hand_landmarks:
-                if draw:
-                    self.mpDraw.draw_landmarks(
-                        frame, handLms, self.mpHands.HAND_CONNECTIONS
-                    )
-        return frame
-
-    def findPosition(
-        self, frame: np.ndarray, hand_id: int = 0, draw: bool = True
-    ) -> List[List[int]]:
-        lmList = []
-        if self.results and self.results.multi_hand_landmarks:
-            if hand_id >= len(self.results.multi_hand_landmarks):
-                return lmList # hand_id out of range
-            
-            myHand = self.results.multi_hand_landmarks[hand_id]
-            for id, lm in enumerate(myHand.landmark):
-                px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
-                lmList.append([id, px, py])
-                if draw:
-                    cv.circle(frame, (px, py), 10, (255, 0, 255), cv.FILLED)
-        return lmList
-
-    def exportLandmarks(
-        self, frame: np.ndarray, hand_id: int = 0, draw: bool = True
-    ) -> List[List[float]]:
-        landmarksPosition = []
-        if self.results and self.results.multi_hand_landmarks:
-            if hand_id >= len(self.results.multi_hand_landmarks):
-                return landmarksPosition # hand_id out of range
-            
-            myHand = self.results.multi_hand_landmarks[hand_id]
-            for lm in myHand.landmark:
-                landmarksPosition.append([lm.x, lm.y, lm.z])
-                if draw:
-                    px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
-                    cv.circle(frame, (px, py), 10, (255, 0, 255), cv.FILLED)
-        return landmarksPosition
-        
-"""
-   
 
 class HandTrackingProcessor:
     def __init__(self, n_frames: int = 30):
@@ -223,7 +158,9 @@ class HandTrackingProcessor:
         frame = self.tracker.findHands(frame, draw=True)
 
         #Extract landmarks from the first hand (if exist)
-        landmarks_raw = self.tracker.exportLandmarks(frame, hand_id=0, draw=True)
+        landmarks_raw = self.tracker.exportLandmarks(frame, hand_id=0, draw=False)
+
+
         if landmarks_raw:
             # Convert into a numpy array (21,3) and add into the buffer
             landmarks_np = np.array(landmarks_raw, dtype=np.float32)
@@ -241,9 +178,10 @@ class HandTrackingProcessor:
     
 
 if __name__ == "__main__":
-
+    
     from window.webcam_window import WebcamWindow
     from window.video_window import VideoWindow
+    from window.image_window import ImageWindow
     from PySide6.QtWidgets import QApplication
     import sys
 
@@ -251,6 +189,7 @@ if __name__ == "__main__":
     fps = int(os.getenv("CAPTURE_FRAME_RATE_FPS", 0))
     duration = int(os.getenv("CAPTURE_DURATION_SECONDS", 0))
     n_frames = fps * duration
+
     window = WebcamWindow(
         0,
         width=1280, 
@@ -262,3 +201,20 @@ if __name__ == "__main__":
 
     window.show()
     sys.exit(app.exec())
+
+    """
+    cap = cv2.VideoCapture(0)
+    hand_tracker = HandTracker()
+
+    while True:
+        ret, frame = cap.read()
+        if not ret: break
+        frameRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_with_hands = hand_tracker.findHands(frame)
+        cv2.imshow("Frame", frame_with_hands)
+        if cv2.waitKey(1) & 0xFF == ord('q'): break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    """
+    

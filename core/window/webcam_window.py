@@ -18,6 +18,7 @@ class WebcamWindow(BaseWindow):
     def get_frame(self):
         ret, frame = self.cap.read()
         if ret:
+            #cv by default use BGR
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             return frame
         return None
