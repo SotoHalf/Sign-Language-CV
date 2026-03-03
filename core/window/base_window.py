@@ -31,6 +31,7 @@ class BaseWindow(QWidget):
         super().__init__()
 
         self.frame_processor = frame_processor
+        self._processing_frame = False
 
         # -----------------------------
         # Window and Styles
