@@ -59,16 +59,19 @@ class BaseWindow(QWidget):
         main_layout.setSpacing(5)
 
         # Top Bar
-        top_bar = QHBoxLayout()
-        top_bar.addStretch()
+        self.top_bar = QHBoxLayout()
+        self.top_bar.addStretch()
 
-        # test button
+        self.action_button_dict = {}
+
+        """
         self.action_button = QPushButton("≡")
         self.action_button.setFixedSize(30, 30)
         self.action_button.setObjectName("actionButton")
-        top_bar.addWidget(self.action_button)
+        self.top_bar.addWidget(self.action_button)
+        """
 
-        main_layout.addLayout(top_bar)
+        main_layout.addLayout(self.top_bar)
 
         # Display Label
         self.display_label = QLabel()
@@ -99,10 +102,31 @@ class BaseWindow(QWidget):
         self.setup()
 
     # -----------------------------
+    # Add new elements and funtionalities
+    # -----------------------------
+
+    def add_button(self, name_button, symbol, action):
+        """
+        Expects a symbol and one function to be executed when button is pressed
+        """
+
+        if name_button in self.action_button_dict:
+            raise Exception(f"This button with name {name_button} already exists")
+
+        action_button = QPushButton(symbol)
+        action_button.setFixedSize(30, 30)
+        action_button.setObjectName("actionButton")
+        print(action)
+        action_button.clicked.connect(action)
+        self.top_bar.addWidget(action_button)
+        self.action_button_dict[name_button] = action_button
+        
+
+    # -----------------------------
     # Main label manage
     # -----------------------------
 
-    def draw_fps(self, scaled_pixmap):
+    def _draw_fps(self, scaled_pixmap):
         # Draw FPS overlay
         painter = QPainter(scaled_pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -176,7 +200,7 @@ class BaseWindow(QWidget):
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation
             )
-            self.draw_fps(scaled_pixmap)
+            self._draw_fps(scaled_pixmap)
             self.display_label.setPixmap(scaled_pixmap)
 
     # -----------------------------

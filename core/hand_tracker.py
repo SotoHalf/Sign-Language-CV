@@ -160,7 +160,7 @@ class HandTrackingProcessor:
         #Extract landmarks from the first hand (if exist)
         landmarks_raw = self.tracker.exportLandmarks(frame, hand_id=0, draw=False)
 
-
+        """
         if landmarks_raw:
             # Convert into a numpy array (21,3) and add into the buffer
             landmarks_np = np.array(landmarks_raw, dtype=np.float32)
@@ -170,9 +170,13 @@ class HandTrackingProcessor:
             if self.landmark_handler.ready():
                 raw = self.landmark_handler.export()
                 processed = self.landmark_handler.preprocess_landmarks(raw)
-                print(f"Buffer is ready: original {raw.shape} → process {processed.shape}")
+                #print(f"Buffer is ready: original {raw.shape} → process {processed.shape}")
+                
+                #df_landmarks = self.landmark_handler.to_dataframe(processed)
+                #df_landmarks.to_csv(f"processed_landmarks_{self.test}.csv", index=False)
 
                 self.landmark_handler.clear()  # restart buffer
+        """
 
         return frame
     
@@ -192,12 +196,34 @@ if __name__ == "__main__":
 
     window = WebcamWindow(
         0,
+        width=480, 
+        height=320, 
+        #width=1280, 
+        #height=720, 
+        frame_processor=HandTrackingProcessor(
+            n_frames=n_frames or 30
+        )
+    )
+
+    #SET RECORD BUTTON
+    def button_has_been_pressed():
+        print("RECORD")
+    window.add_button("record_button", "R", button_has_been_pressed)
+
+    def button_has_been_pressed():
+        print("OTHER")
+    window.add_button("other_button", "O", button_has_been_pressed)
+
+    """
+    window = VideoWindow(
+        "test_video.mp4",
         width=1280, 
         height=720, 
         frame_processor=HandTrackingProcessor(
             n_frames=n_frames or 30
         )
     )
+    """
 
     window.show()
     sys.exit(app.exec())
