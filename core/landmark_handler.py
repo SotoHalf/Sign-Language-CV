@@ -1,10 +1,11 @@
 import os
-from dotenv import load_dotenv
+import sys
+from core.utils import load_env
 from collections import deque
 import numpy as np
 import pandas as pd
 
-load_dotenv()
+load_env()
 
 class LandmarkHandler:
 
@@ -14,8 +15,10 @@ class LandmarkHandler:
     """
 
     LANDMARK_WRIST = int(os.getenv("HAND_LANDMARK_WRIST", 0))
-    LANDMARK_MIDDLE_FINGER = int(os.getenv("HAND_LANDMARK_MIDDLE_FINGER", 0))
-    TOTAL_LANDMARKS = int(os.getenv("HAND_TOTAL_LANDMARKS", 0))
+    LANDMARK_MIDDLE_FINGER = int(os.getenv("HAND_LANDMARK_MIDDLE_FINGER", 12))
+    LANDMARK_THUMBCMC = int(os.getenv("HAND_LANDMARK_THUMBCMC", 1))
+    LANDMARK_PINCKYMCP = int(os.getenv("HAND_LANDMARK_PINCKYMCP", 17))
+    TOTAL_LANDMARKS = int(os.getenv("HAND_TOTAL_LANDMARKS", 21))
 
     def __init__(self, n_frames: int):
         """
@@ -81,16 +84,29 @@ class LandmarkHandler:
     def tensor_landmarks(cls):
         #I don't know if I will be needing that
         pass
-
+    
+    """
     @classmethod
     def _preprocess_scale(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
-        """
+        landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
+        middle_finger = cls.get_landmark_cols(landmarks_frame_data, cls.LANDMARK_MIDDLE_FINGER)
+        # Después de centrar, la muñeca es (0,0,0), así que la distancia es la norma del dedo medio
+        scale = np.linalg.norm(middle_finger, axis=1)
+        scale[scale == 0] = 1e-6
+        landmarks_frame_data = landmarks_frame_data / scale[:, np.newaxis]
+        return landmarks_frame_data
+
+    """
+    @classmethod
+    def _preprocess_scale(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
+        '''
         Apply scale normalization by dividing all landmarks by the
-        wrist-to-middle-finger Euclidean distance per frame.
-        """
+        wrist-to-middle-finger Euclidean distance for each frame.
+        '''
 
         landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
         
+        """
         # columns for middle finger
         # get the landmark expected by index
         middle_finger = LandmarkHandler.get_landmark_cols(
@@ -103,39 +119,61 @@ class LandmarkHandler:
             landmarks_frame_data,  
             cls.LANDMARK_WRIST
         )
-
+    
         # euclidean distance for each row (axis = 1)
-        scale = np.linalg.norm(middle_finger - wrist_position, axis=1)
-        
-        # in case some frame has middle = [0,0,0] divide by 0 will get an error
-        # so it set a very small number to avoid an error
-        scale[scale == 0] = 1e-6
-        
-        landmarks_frame_data = landmarks_frame_data / scale[:, np.newaxis]
+        #scale = np.linalg.norm(middle_finger - wrist_position, axis=1)
+        scale = np.mean(
+            np.linalg.norm(middle_finger - wrist_position, axis=1)
+        )
+        """
+
+        # columns for middle finger
+        # get the landmark expected by index
+        thumb_cmc = LandmarkHandler.get_landmark_cols(
+            landmarks_frame_data,  
+            cls.LANDMARK_THUMBCMC
+        )
+
+        # columns for wrist
+        pinky_mcp = LandmarkHandler.get_landmark_cols(
+            landmarks_frame_data,  
+            cls.LANDMARK_PINCKYMCP
+        )
+    
+        # euclidean distance for each row (axis = 1)
+        #scale = np.linalg.norm(middle_finger - wrist_position, axis=1)
+        scale = np.mean(
+            np.linalg.norm(pinky_mcp - thumb_cmc, axis=1)
+        )
+
+        if scale == 0:
+            scale = 1e-6
+
+        landmarks_frame_data = landmarks_frame_data / scale
 
         return landmarks_frame_data
-    
+
     @classmethod
     def _preprocess_position(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
-        """
-        Subtract the wrist coordinates from all landmarks in each frame
-        to normalize position and set the wrist as the origin.
-        """
-
         landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
-        
-        # columns for wrist
+
         wrist_positions = LandmarkHandler.get_landmark_cols(
-            landmarks_frame_data,  
+            landmarks_frame_data,
             cls.LANDMARK_WRIST
         )
 
-        # subtract wrist to center hand
-        # all rows
-        # np.repeat is used to match both shapes
-        landmarks_frame_data -= np.repeat(wrist_positions, cls.TOTAL_LANDMARKS, axis=1)        
+        reshaped = landmarks_frame_data.reshape(
+            landmarks_frame_data.shape[0],
+            cls.TOTAL_LANDMARKS,
+            3
+        )
 
-        return landmarks_frame_data
+        wrist_frame0 = wrist_positions[0] # para restar usa solo el frame 0
+
+        #reshaped -= wrist_positions[:, None, :] # para restar usa cada frame          
+        reshaped -= wrist_frame0[None, None, :]
+
+        return reshaped.reshape(landmarks_frame_data.shape)
 
     @classmethod
     def _preprocess_delta(cls, landmarks_frame_data: np.ndarray, cols: np.ndarray = None) -> np.ndarray:
@@ -159,6 +197,7 @@ class LandmarkHandler:
 
         return delta
     
+    # NOT USED DEPRECATED
     @classmethod
     def _preprocess_delta_wrist(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
         """
@@ -174,39 +213,38 @@ class LandmarkHandler:
 
     @classmethod
     def preprocess_landmarks(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
-        """
+        '''
 
         Normalize and Transform values:
+            - Position (using wrist as the origin)
             - Scale (using distance from the tip middle finger and the wrist)
             - Add delta for the wirst without position normalize
-            - Position (using wrist as the origin)
+            
             - Drop wrist values
             - Add delta (change between frames) from fingers
 
         21:
             Depends on HAND_TOTAL_LANDMARKS
 
-        123:
-            - 20 landmarks * 3 (x,y,z) (drop wrist as always will be 0) = 60 
-            - 60 * 2 (delta values subtracting wrist) = 120 
-            - 120 + 3 (wrist delta)
+        126:
+            - 21 landmarks * 3 (x,y,z) = 63
+            - 63 * 2 (delta values subtracting wrist) = 126
+            - 63 (landmarks) + 63 (delta)
         
         :param landmark_export: shape (n_frames, 63)
         :type landmark_export: np.ndarray[_AnyShape, dtype[Any]]
-        :return: Multidimensional array with shape (n_frames, 123)
+        :return: Multidimensional array with shape (n_frames, 126)
         :rtype: ndarray[_AnyShape, dtype[Any]]
-        """
+        '''
 
         landmarks_frame_data_norm = np.array(landmarks_frame_data, copy=True)
-        landmarks_frame_data_norm = cls._preprocess_scale(landmarks_frame_data_norm)
-        delta_wrist = cls._preprocess_delta_wrist(landmarks_frame_data_norm)
+
         landmarks_frame_data_norm = cls._preprocess_position(landmarks_frame_data_norm)
-        # drop wrist
-        landmarks_frame_data_norm = np.delete(landmarks_frame_data_norm, [0,1,2], axis=1)
+        landmarks_frame_data_norm = cls._preprocess_scale(landmarks_frame_data_norm)
         delta_all = cls._preprocess_delta(landmarks_frame_data_norm)
 
         # add the delta data
-        landmarks_frame_data_norm = np.hstack([landmarks_frame_data_norm, delta_all, delta_wrist])
+        landmarks_frame_data_norm = np.hstack([landmarks_frame_data_norm, delta_all])
        
         return landmarks_frame_data_norm
     
@@ -230,15 +268,12 @@ class LandmarkHandler:
             lm_cols = [f"lm{i}_{axis}" for i in range(cls.TOTAL_LANDMARKS) for axis in ['x','y','z']]
             column_names = lm_cols
         else:
-            n_landmarks = cls.TOTAL_LANDMARKS - 1  # without wrist
             # Landmark columns
-            lm_cols = [f"lm{i+1}_{axis}" for i in range(n_landmarks) for axis in ['x','y','z']]
+            lm_cols = [f"lm{i}_{axis}" for i in range(cls.TOTAL_LANDMARKS) for axis in ['x','y','z']]
             # Delta columns
-            delta_cols = [f"d{i+1}_{axis}" for i in range(n_landmarks) for axis in ['x','y','z']]
-            # Wrist delta columns
-            delta_wrist_cols = [f"dw_{axis}" for axis in ['x','y','z']]
-
-            column_names = lm_cols + delta_cols + delta_wrist_cols
+            delta_cols = [f"d{i}_{axis}" for i in range(cls.TOTAL_LANDMARKS) for axis in ['x','y','z']]
+        
+            column_names = lm_cols + delta_cols
 
         if n_cols != len(column_names):
             raise ValueError(f"Shape mismatch: array has {n_cols} columns, expected {len(column_names)}")
@@ -322,12 +357,14 @@ if __name__ == "__main__":
 
         processed_landmarks = handler.preprocess_landmarks(raw_landmarks)
         print("Landmarks processed shape:", processed_landmarks.shape)
+
+        print(processed_landmarks)
  
         handler.clear()
 
-        df_landmarks = handler.to_dataframe(processed_landmarks)
+        #df_landmarks = handler.to_dataframe(processed_landmarks)
 
-        df_landmarks.to_csv("processed_landmarks.csv", index=False)
+        #df_landmarks.to_csv("processed_landmarks.csv", index=False)
         
 
 

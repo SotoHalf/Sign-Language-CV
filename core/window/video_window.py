@@ -1,5 +1,5 @@
 import cv2
-from .base_window import BaseWindow
+from core.window.base_window import BaseWindow
 
 
 class VideoWindow(BaseWindow):

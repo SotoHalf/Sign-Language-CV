@@ -1,8 +1,12 @@
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QPushButton, QHBoxLayout, QSizePolicy
-from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont
-from PySide6.QtCore import QTimer, Qt
+import os
+
+from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QPushButton, QHBoxLayout, QSizePolicy, QInputDialog
+from PySide6.QtGui import QIcon, QImage, QPixmap, QPainter, QColor, QFont
+from PySide6.QtCore import QSize, QTimer, Qt
 import numpy as np
 import time
+
+from core.processors.frame_processor import FrameProcessor
 
 class BaseWindow(QWidget):
 
@@ -15,8 +19,25 @@ class BaseWindow(QWidget):
     """
 
     DEFAULT_TIMER = 30 # Default timer interval for update frame 1000ms/30 # FPS
+    COLORS = {
+        "bg": "#1e1e1e",
+        "black": "#000000",
+        "white": "#ffffff",
 
-    def __init__(self, width=800, height=600, frame_processor=None):
+        "blue": "#3a86ff",
+        "blue_hover": "#2f6fd6",
+
+        "green": "#52b788",
+        "green_hover": "#40916c",
+
+        "orange": "#f4a261",
+        "orange_hover": "#f39344",
+
+        "red": "#e76f51",
+        "red_hover": "#e25b39",
+    }
+    
+    def __init__(self, width=800, height=600, frame_processor: FrameProcessor=None):
         """
         Initialize the BaseWindow.
 
@@ -30,27 +51,18 @@ class BaseWindow(QWidget):
         """
         super().__init__()
 
-        self.frame_processor = frame_processor
+        self._frame_processor = frame_processor
         self._processing_frame = False
 
-        # -----------------------------
-        # Window and Styles
-        # -----------------------------
-        self.setStyleSheet("""
-            QWidget { background-color: #1e1e1e; }
-            /*QLabel { border: 2px solid #444; border-radius: 8px; }*/
-            QPushButton {
-                color: white;
+        # Window Styles
+        self.setStyleSheet(f"""
+            QWidget {{ background-color: {self.COLORS["bg"]}; }}
+            QPushButton {{
+                color: {self.COLORS["white"]};
                 border: none;
                 padding: 5px 10px;
                 border-radius: 5px;
-            }
-            #actionButton {
-                background-color: #0078ff;
-            }
-            #actionButton:hover {
-                background-color: #0053ff;
-            }
+            }}
         """)
 
         # Main Layout
@@ -58,20 +70,7 @@ class BaseWindow(QWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(5)
 
-        # Top Bar
-        self.top_bar = QHBoxLayout()
-        self.top_bar.addStretch()
-
         self.action_button_dict = {}
-
-        """
-        self.action_button = QPushButton("≡")
-        self.action_button.setFixedSize(30, 30)
-        self.action_button.setObjectName("actionButton")
-        self.top_bar.addWidget(self.action_button)
-        """
-
-        main_layout.addLayout(self.top_bar)
 
         # Display Label
         self.display_label = QLabel()
@@ -86,6 +85,11 @@ class BaseWindow(QWidget):
         self.frame_width = width
         self.frame_height = height
         self.resize(width, height)
+
+        self.MARGIN_PANEL_X = 20
+        self.MARGIN_PANEL_Y = - 10
+
+        self.setup_button_panel()
 
         #FPS
         self._last_time = time.perf_counter()
@@ -102,29 +106,117 @@ class BaseWindow(QWidget):
         self.setup()
 
     # -----------------------------
-    # Add new elements and funtionalities
+    # Append options
     # -----------------------------
+    
+    def show_input_dialog(self, title: str, label: str, default_text: str = "") -> str | None:
+        text, ok = QInputDialog.getText(self, title, label, text=default_text)
+        if ok and text:
+            return text.strip()
+        return None
 
-    def add_button(self, name_button, symbol, action):
-        """
-        Expects a symbol and one function to be executed when button is pressed
-        """
+    def add_button(
+        self,
+        name,
+        text="",
+        action=None,
+        width=60,
+        height=30,
+        color=None,
+        hover_color=None,
+        tooltip=None,
+        checkable=False,
+        shortcut=None,
+        alignment="right"
+    ):
+        if name in self.action_button_dict:
+            raise Exception(f"Button {name} already exists")
 
-        if name_button in self.action_button_dict:
-            raise Exception(f"This button with name {name_button} already exists")
+        btn = QPushButton(text)
+        btn.setFixedSize(width, height)
+        btn.setCheckable(checkable)
 
-        action_button = QPushButton(symbol)
-        action_button.setFixedSize(30, 30)
-        action_button.setObjectName("actionButton")
-        print(action)
-        action_button.clicked.connect(action)
-        self.top_bar.addWidget(action_button)
-        self.action_button_dict[name_button] = action_button
-        
+        if tooltip:
+            btn.setToolTip(tooltip)
+    
+        if action:
+            if checkable:
+                btn.clicked.connect(lambda checked: action(checked))
+            else:
+                btn.clicked.connect(lambda: action())
 
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {color or self.COLORS["blue"]};
+                color: {self.COLORS["white"]};
+                border-radius: 5px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_color or self.COLORS["blue_hover"]};
+            }}
+            QToolTip {{
+                background-color: {self.COLORS["black"]};
+                color: {self.COLORS["white"]};
+                border: 1px solid {self.COLORS["white"]};
+            }}
+        """)
+
+        layout = self.button_panel_layout
+
+        if alignment == "left":
+            layout.insertWidget(0, btn)
+        else:
+            layout.addWidget(btn)
+
+        if shortcut:
+            btn.setShortcut(shortcut)
+
+        self.action_button_dict[name] = btn
+
+        return btn
+    
     # -----------------------------
     # Main label manage
     # -----------------------------
+
+    def setup_button_panel(self):
+        """Create the panel that will contain the buttons"""
+        self.button_panel = QWidget(self.display_label)
+        self.button_panel.setStyleSheet("background-color: transparent;")
+        self.button_panel.setAttribute(Qt.WA_AlwaysShowToolTips)
+        self.button_panel_layout = QHBoxLayout(self.button_panel)
+        self.button_panel_layout.setContentsMargins(0, 0, 0, 0)
+        self.button_panel_layout.setSpacing(5)
+        self.button_panel.hide()
+
+    def update_button_panel_position(self):
+        """Set the button pannel into the top right image"""
+        if not hasattr(self, 'button_panel'):
+            return
+        
+        pixmap = self.display_label.pixmap()
+        if pixmap is None or pixmap.isNull():
+            self.button_panel.hide()
+            return
+        
+        label_rect = self.display_label.rect()
+        pixmap_rect = pixmap.rect()
+    
+        scaled_rect = pixmap_rect
+        scaled_rect.moveCenter(label_rect.center())
+        
+        # Set the buttons panel at the right side
+        panel_width = self.button_panel.sizeHint().width()
+        panel_height = self.button_panel.sizeHint().height()
+        x = scaled_rect.right() - panel_width - self.MARGIN_PANEL_X
+        y = scaled_rect.top() - self.MARGIN_PANEL_Y
+        
+        self.button_panel.setGeometry(x, y, panel_width, panel_height)
+        self.button_panel.show()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update_button_panel_position()
 
     def _draw_fps(self, scaled_pixmap):
         # Draw FPS overlay
@@ -164,14 +256,12 @@ class BaseWindow(QWidget):
                 self._frame_count = 0
                 self._last_time = current_time
 
-            if frame is not None:
-                if self.frame_processor is not None:
-                    frame = self.frame_processor.process(frame)
-                self._show_frame(frame)
-            else:
-                # default frame
-                default_frame = np.zeros((self.display_label.height(), self.display_label.width(), 3), dtype=np.uint8)
-                self._show_frame(default_frame)
+            if frame is None:
+                frame = np.zeros((self.display_label.height(), self.display_label.width(), 3), dtype=np.uint8)
+
+            frame = self._frame_processor.process(frame)
+            self._show_frame(frame)
+            
         finally:
               self._processing_frame = False
         
@@ -189,6 +279,13 @@ class BaseWindow(QWidget):
         qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qt_image)
 
+        if not hasattr(self, '_last_frame_size') or self._last_frame_size != (w, h):
+            self._last_frame_size = (w, h)
+            margins = self.layout().contentsMargins()
+            new_width = w + margins.left() + margins.right()
+            new_height = h + margins.top() + margins.bottom()
+            self.resize(new_width, new_height)
+
         #set the actual window size
         label_width = self.display_label.width()
         label_height = self.display_label.height()
@@ -202,6 +299,7 @@ class BaseWindow(QWidget):
             )
             self._draw_fps(scaled_pixmap)
             self.display_label.setPixmap(scaled_pixmap)
+            self.update_button_panel_position() 
 
     # -----------------------------
     # Abstract methods

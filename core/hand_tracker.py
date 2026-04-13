@@ -4,12 +4,12 @@ import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+from core.utils import get_project_root, load_env
 import numpy as np
 from typing import Any, List
-from landmark_handler import LandmarkHandler
-from dotenv import load_dotenv
 
-load_dotenv()
+
+load_env()
 
 # Hand Conections for MediaPipe Hands
 HAND_CONNECTIONS = [
@@ -31,9 +31,7 @@ class HandTracker:
     ) -> None:
         
         if model_path is None:
-            root = os.getenv("PROJECT_ROOT")
-            if root is None:
-                raise ValueError("PROJECT_ROOT not defined in .env")
+            root = get_project_root() or './'
             
             model_relative = os.getenv("HAND_DETECTION_MODEL")
             if model_relative is None:
@@ -147,46 +145,14 @@ class HandTracker:
         if hasattr(self, 'results') and self.results and self.results.handedness:
             return [hand[0].category_name for hand in self.results.handedness]
         return []
-
-class HandTrackingProcessor:
-    def __init__(self, n_frames: int = 30):
-        self.tracker = HandTracker()
-        self.landmark_handler = LandmarkHandler(n_frames)
-
-    def process(self, frame: np.ndarray) -> np.ndarray:
-        #Detect and draw hand
-        frame = self.tracker.findHands(frame, draw=True)
-
-        #Extract landmarks from the first hand (if exist)
-        landmarks_raw = self.tracker.exportLandmarks(frame, hand_id=0, draw=False)
-
-        """
-        if landmarks_raw:
-            # Convert into a numpy array (21,3) and add into the buffer
-            landmarks_np = np.array(landmarks_raw, dtype=np.float32)
-            self.landmark_handler.add_frame(landmarks_np)
-
-            # if the buffer it's full preprocess and export data (now just print)
-            if self.landmark_handler.ready():
-                raw = self.landmark_handler.export()
-                processed = self.landmark_handler.preprocess_landmarks(raw)
-                #print(f"Buffer is ready: original {raw.shape} → process {processed.shape}")
-                
-                #df_landmarks = self.landmark_handler.to_dataframe(processed)
-                #df_landmarks.to_csv(f"processed_landmarks_{self.test}.csv", index=False)
-
-                self.landmark_handler.clear()  # restart buffer
-        """
-
-        return frame
-    
-
+ 
 if __name__ == "__main__":
     
     from window.webcam_window import WebcamWindow
     from window.video_window import VideoWindow
     from window.image_window import ImageWindow
     from PySide6.QtWidgets import QApplication
+    from core.processors.hand_tracking_processor import HandTrackingProcessor
     import sys
 
     app = QApplication(sys.argv)
@@ -200,19 +166,8 @@ if __name__ == "__main__":
         height=320, 
         #width=1280, 
         #height=720, 
-        frame_processor=HandTrackingProcessor(
-            n_frames=n_frames or 30
-        )
+        frame_processor=HandTrackingProcessor()
     )
-
-    #SET RECORD BUTTON
-    def button_has_been_pressed():
-        print("RECORD")
-    window.add_button("record_button", "R", button_has_been_pressed)
-
-    def button_has_been_pressed():
-        print("OTHER")
-    window.add_button("other_button", "O", button_has_been_pressed)
 
     """
     window = VideoWindow(
@@ -228,19 +183,4 @@ if __name__ == "__main__":
     window.show()
     sys.exit(app.exec())
 
-    """
-    cap = cv2.VideoCapture(0)
-    hand_tracker = HandTracker()
-
-    while True:
-        ret, frame = cap.read()
-        if not ret: break
-        frameRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_with_hands = hand_tracker.findHands(frame)
-        cv2.imshow("Frame", frame_with_hands)
-        if cv2.waitKey(1) & 0xFF == ord('q'): break
-
-    cap.release()
-    cv2.destroyAllWindows()
-    """
     
