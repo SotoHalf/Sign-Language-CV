@@ -212,7 +212,7 @@ class LandmarkHandler:
         return landmarks_frame_data
 
     @classmethod
-    def preprocess_landmarks(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
+    def preprocess_landmarks(cls, landmarks_frame_data: np.ndarray, n_frames: int = None) -> np.ndarray:
         '''
 
         Normalize and Transform values:
@@ -245,6 +245,14 @@ class LandmarkHandler:
 
         # add the delta data
         landmarks_frame_data_norm = np.hstack([landmarks_frame_data_norm, delta_all])
+
+        # test - fill in case of missing n_frames
+        if n_frames:
+            current_frames = landmarks_frame_data_norm.shape[0]
+            if current_frames < n_frames:
+                last_frame = landmarks_frame_data_norm[-1] if current_frames > 0 else np.zeros(landmarks_frame_data_norm.shape[1], dtype=np.float32)
+                repeat = n_frames - current_frames
+                landmarks_frame_data_norm = np.vstack([landmarks_frame_data_norm, np.tile(last_frame, (repeat, 1))])
        
         return landmarks_frame_data_norm
     

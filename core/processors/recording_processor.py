@@ -22,12 +22,15 @@ class RecordingProcessor(FrameProcessor):
     Processor to record sequences of hand landmarks and store them as CSV-ready data.
     """
 
+    DEFAULT_LABEL = 'Unknown'
+
     def __init__(self, n_frames: int = None, max_sequences_per_record: int = 10):
         if n_frames is None:
             n_frames = self.get_default_n_frames()
 
         self.tracker = HandTracker()
         self.landmark_handler = LandmarkHandler(n_frames)
+        self.n_frames = n_frames
 
         # Recording state control
         self._recording_active = False      # Actually recording landmarks
@@ -48,11 +51,17 @@ class RecordingProcessor(FrameProcessor):
         """
         self.max_sequences_per_record = max_sequences_per_record
         self.current_sequences_per_record: Dict[str, int] = {}
-        self.current_label: str = "Unknown"
+        self.current_label: str = RecordingProcessor.DEFAULT_LABEL
+
+        # test - for less frames
+        self._force_landmark_handler_export = False
 
     # ---------------------------------------
     # CONTROL METHODS
     # ---------------------------------------
+
+    def force_landmark_handler_export(self):
+        self._force_landmark_handler_export = True
 
     def get_count_records(self) -> Dict[str, int]:
         return {label: len(seqs) for label, seqs in self.records.items()}
@@ -63,7 +72,9 @@ class RecordingProcessor(FrameProcessor):
     def get_current_label(self) -> str:
         return self.current_label
     
-    def _start_countdown(self, label: str = "Unknown"):
+    def _start_countdown(self, label: str = None):
+        if not label:
+            label = RecordingProcessor.DEFAULT_LABEL
         """Begin countdown before actual recording starts."""
         if self._recording_active or self._is_countdown:
             print("Already recording or counting down")
@@ -83,8 +94,14 @@ class RecordingProcessor(FrameProcessor):
         self.current_sequences_per_record[self.current_label] = self.max_sequences_per_record
         print(f"Recording started for label: {self.current_label}")
 
-    def start_record(self, label: str = "Unknown"):
-        self._start_countdown(label)
+    def start_record(self, label: str = None, countdown: bool = True):
+        if not label:
+            label = RecordingProcessor.DEFAULT_LABEL
+        if countdown:
+            self._start_countdown(label)
+        else:
+            self._begin_recording()
+
 
     def stop_record(self):
         """
@@ -96,19 +113,16 @@ class RecordingProcessor(FrameProcessor):
         self._is_countdown = False
 
         # reset label
-        self.current_label = "Unknown"
+        self.current_label = RecordingProcessor.DEFAULT_LABEL
 
         # Clear buffer
         self.landmark_handler.clear()
         self.current_sequences_per_record = {}
+        self._force_landmark_handler_export = False
 
     def is_recording(self) -> bool:
         return self._recording_active
     
-    def cancel(self):
-        """Cancel any ongoing countdown or recording."""
-        self.stop_record()
-
     # ---------------------------------------
     # MAIN PROCESS (override)
     # ---------------------------------------
@@ -136,30 +150,31 @@ class RecordingProcessor(FrameProcessor):
             if landmarks_raw is not None and len(landmarks_raw) > 0:
                 landmarks_np = np.array(landmarks_raw, dtype=np.float32)
                 self.landmark_handler.add_frame(landmarks_np)
+
+
+            if self.landmark_handler.ready() or self._force_landmark_handler_export:
+                # Save sequence
+                raw = self.landmark_handler.export()
+                df_raw = LandmarkHandler.to_dataframe(raw)
+                processed = LandmarkHandler.preprocess_landmarks(raw, self.n_frames)
+                df_processed = LandmarkHandler.to_dataframe(processed)
                 
-                if self.landmark_handler.ready():
-                    # Save sequence
-                    raw = self.landmark_handler.export()
-                    df_raw = LandmarkHandler.to_dataframe(raw)
-                    processed = LandmarkHandler.preprocess_landmarks(raw)
-                    df_processed = LandmarkHandler.to_dataframe(processed)
-                    
-                    self.records.setdefault(self.current_label, []).append(
-                        SequenceRecord(raw=df_raw, processed=df_processed)
-                    )
-                    print(f"Sequence recorded. Total for label {self.current_label}: {len(self.records[self.current_label])}")
-                    
-                    # Trigger flash effect
-                    self._flash_until = time.time() + 0.15  # 150ms flash
-                    
-                    self.landmark_handler.clear()
-                    
-                    # Decrement remaining sequences for this label
-                    remaining = self.current_sequences_per_record.get(self.current_label, 0) - 1
-                    if remaining <= 0:
-                        self.stop_record()
-                    else:
-                        self.current_sequences_per_record[self.current_label] = remaining
+                self.records.setdefault(self.current_label, []).append(
+                    SequenceRecord(raw=df_raw, processed=df_processed)
+                )
+                print(f"Sequence recorded. Total for label {self.current_label}: {len(self.records[self.current_label])}")
+                
+                # Trigger flash effect
+                self._flash_until = time.time() + 0.15  # 150ms flash
+                
+                self.landmark_handler.clear()
+                
+                # Decrement remaining sequences for this label
+                remaining = self.current_sequences_per_record.get(self.current_label, 0) - 1
+                if remaining <= 0:
+                    self.stop_record()
+                else:
+                    self.current_sequences_per_record[self.current_label] = remaining
         
         elif self._is_countdown:
             # Check if countdown finished
@@ -268,7 +283,6 @@ class RecordingProcessor(FrameProcessor):
 
 if __name__ == "__main__":
     import sys
-    import threading
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import QTimer
     from core.window.webcam_window import WebcamWindow

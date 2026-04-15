@@ -1,6 +1,6 @@
 import os
 
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QPushButton, QHBoxLayout, QSizePolicy, QInputDialog
+from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QPushButton, QHBoxLayout, QSizePolicy, QInputDialog, QMessageBox
 from PySide6.QtGui import QIcon, QImage, QPixmap, QPainter, QColor, QFont
 from PySide6.QtCore import QSize, QTimer, Qt
 import numpy as np
@@ -115,6 +115,8 @@ class BaseWindow(QWidget):
             return text.strip()
         return None
 
+    def show_dialog(self, title: str, label: str) -> str | None:
+        QMessageBox.warning(self, title, label)
     def add_button(
         self,
         name,
@@ -258,8 +260,9 @@ class BaseWindow(QWidget):
 
             if frame is None:
                 frame = np.zeros((self.display_label.height(), self.display_label.width(), 3), dtype=np.uint8)
-
-            frame = self._frame_processor.process(frame)
+            
+            if self._frame_processor is not None:
+                frame = self._frame_processor.process(frame)
             self._show_frame(frame)
             
         finally:

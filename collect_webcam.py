@@ -22,24 +22,27 @@ def main():
     # Flag to prevent multiple countdowns
     countdown_active = False
     
-    def toggle_record(checked):
+    def toggle_record():
         nonlocal countdown_active
-        if checked:
-            # Start countdown only if not already recording or counting down
-            if not processor.is_recording() and not countdown_active:
-                countdown_active = True
-                label = processor.current_label
-                processor.start_record(label)
-                # Start a timer to reset the flag after countdown finishes
-                # The flag will be reset when recording actually starts or is cancelled
-                def reset_countdown_flag():
-                    nonlocal countdown_active
-                    countdown_active = False
-                # Check after 3.1 seconds if still active (if recording didn't start)
-                QTimer.singleShot(3100, reset_countdown_flag)
+        # Start countdown only if not already recording or counting down
+        if not processor.is_recording() and not countdown_active:
+            #ask for label if none is given
+            if processor.current_label == RecordingProcessor.DEFAULT_LABEL:
+                change_label()
+
+            countdown_active = True
+            label = processor.current_label
+            processor.start_record(label)
+            # Start a timer to reset the flag after countdown finishes
+            # The flag will be reset when recording actually starts or is cancelled
+            def reset_countdown_flag():
+                nonlocal countdown_active
+                countdown_active = False
+            # Check after 3.1 seconds if still active (if recording didn't start)
+            QTimer.singleShot(3100, reset_countdown_flag)
         else:
             # Cancel any ongoing countdown or recording
-            processor.cancel()
+            processor.stop_record()
             countdown_active = False
     
     def change_label():
@@ -57,7 +60,6 @@ def main():
         "record_button",
         text="Record",
         action=toggle_record,
-        checkable=True,
         color=WebcamWindow.COLORS['red'],
         hover_color=WebcamWindow.COLORS['red_hover'],
         tooltip="Start / Stop recording (with 3s countdown)",
