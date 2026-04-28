@@ -13,46 +13,34 @@ from PySide6.QtCore import QTimer
 from core.window.webcam_window import WebcamWindow
 from core.processors.recording_processor import RecordingProcessor
 
+PROCESSOR = RecordingProcessor()
+
 def main():
     app = QApplication(sys.argv)
     
-    processor = RecordingProcessor()
-    window = WebcamWindow(0, width=1280, height=720, frame_processor=processor)
-    
-    # Flag to prevent multiple countdowns
-    countdown_active = False
-    
+    window = WebcamWindow(0, width=1280, height=720, frame_processor=PROCESSOR)
+        
     def toggle_record():
-        nonlocal countdown_active
         # Start countdown only if not already recording or counting down
-        if not processor.is_recording() and not countdown_active:
+        if not PROCESSOR.is_recording() and not PROCESSOR.is_countdown():
             #ask for label if none is given
-            if processor.current_label == RecordingProcessor.DEFAULT_LABEL:
+            if PROCESSOR.current_label == RecordingProcessor.DEFAULT_LABEL:
                 change_label()
 
-            countdown_active = True
-            label = processor.current_label
-            processor.start_record(label)
-            # Start a timer to reset the flag after countdown finishes
-            # The flag will be reset when recording actually starts or is cancelled
-            def reset_countdown_flag():
-                nonlocal countdown_active
-                countdown_active = False
-            # Check after 3.1 seconds if still active (if recording didn't start)
-            QTimer.singleShot(3100, reset_countdown_flag)
+            label = PROCESSOR.current_label
+            PROCESSOR.start_record(label)
         else:
             # Cancel any ongoing countdown or recording
-            processor.stop_record()
-            countdown_active = False
+            PROCESSOR.stop_record()
     
     def change_label():
-        new_label = window.show_input_dialog("Change Label", "Enter new label:", processor.current_label)
+        new_label = window.show_input_dialog("Change Label", "Enter new label:", PROCESSOR.current_label)
         if new_label:
-            processor.current_label = new_label
-            print(f"Current label set to: {processor.current_label}")
+            PROCESSOR.current_label = new_label
+            print(f"Current label set to: {PROCESSOR.current_label}")
     
     def save_records():
-        processor.save_records()
+        PROCESSOR.save_records()
         print("Records saved!")
     
     # Add buttons

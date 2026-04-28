@@ -56,9 +56,8 @@ class RecordingProcessor(FrameProcessor):
         # test - for less frames
         self._force_landmark_handler_export = False
 
-    # ---------------------------------------
+    
     # CONTROL METHODS
-    # ---------------------------------------
 
     def force_landmark_handler_export(self):
         self._force_landmark_handler_export = True
@@ -123,9 +122,10 @@ class RecordingProcessor(FrameProcessor):
     def is_recording(self) -> bool:
         return self._recording_active
     
-    # ---------------------------------------
+    def is_countdown(self) -> bool:
+        return self._is_countdown
+    
     # MAIN PROCESS (override)
-    # ---------------------------------------
 
     def process(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -237,10 +237,8 @@ class RecordingProcessor(FrameProcessor):
         
         return frame
 
-    # ---------------------------------------
     # SAVE METHODS
-    # ---------------------------------------
-
+    
     def save_records(self, output_path_raw: str = None, output_path_processed: str = None):
         """
         Save recorded sequences into raw and processed folders organized by label.
@@ -290,29 +288,19 @@ if __name__ == "__main__":
     
     processor = RecordingProcessor()
     window = WebcamWindow(0, width=1280, height=720, frame_processor=processor)
-    
-    # Flag to prevent multiple countdowns
-    countdown_active = False
-    
-    def toggle_record(checked):
-        global countdown_active
-        if checked:
-            # Start countdown only if not already recording or counting down
-            if not processor.is_recording() and not countdown_active:
-                countdown_active = True
-                label = processor.current_label
-                processor.start_record(label)
-                # Start a timer to reset the flag after countdown finishes
-                # The flag will be reset when recording actually starts or is cancelled
-                def reset_countdown_flag():
-                    global countdown_active
-                    countdown_active = False
-                # Check after 3.1 seconds if still active (if recording didn't start)
-                QTimer.singleShot(3100, reset_countdown_flag)
+        
+    def toggle_record():
+        # Start countdown only if not already recording or counting down
+        if not processor.is_recording() and not processor.is_countdown():
+            #ask for label if none is given
+            if processor.current_label == RecordingProcessor.DEFAULT_LABEL:
+                change_label()
+
+            label = processor.current_label
+            processor.start_record(label)
         else:
             # Cancel any ongoing countdown or recording
-            processor.cancel()
-            countdown_active = False
+            processor.stop_record()
     
     def change_label():
         new_label = window.show_input_dialog("Change Label", "Enter new label:", processor.current_label)

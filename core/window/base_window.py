@@ -71,6 +71,8 @@ class BaseWindow(QWidget):
         main_layout.setSpacing(5)
 
         self.action_button_dict = {}
+        # in case we need to fix position for some additions to UI
+        self.external_resizes = [] 
 
         # Display Label
         self.display_label = QLabel()
@@ -102,6 +104,8 @@ class BaseWindow(QWidget):
         self.timer.timeout.connect(self._update_frame)
         self.timer.start(BaseWindow.DEFAULT_TIMER)
 
+        self.overlay_text = ""
+
         # Hook for extended classes
         self.setup()
 
@@ -117,6 +121,7 @@ class BaseWindow(QWidget):
 
     def show_dialog(self, title: str, label: str) -> str | None:
         QMessageBox.warning(self, title, label)
+        
     def add_button(
         self,
         name,
@@ -219,6 +224,8 @@ class BaseWindow(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.update_button_panel_position()
+        for _func in self.external_resizes:
+            _func()
 
     def _draw_fps(self, scaled_pixmap):
         # Draw FPS overlay
@@ -230,6 +237,11 @@ class BaseWindow(QWidget):
 
         painter.setPen(QColor(0, 255, 0))
         painter.drawText(10, 25, f"{self._fps} FPS")
+
+        if hasattr(self, "overlay_text") and self.overlay_text:
+            painter.setPen(QColor(255, 255, 255))
+            painter.setFont(QFont("Arial", 24, QFont.Bold))
+            painter.drawText(self.frame_height//2, self.frame_width//2, self.overlay_text)
 
         painter.end()
 
@@ -303,6 +315,8 @@ class BaseWindow(QWidget):
             self._draw_fps(scaled_pixmap)
             self.display_label.setPixmap(scaled_pixmap)
             self.update_button_panel_position() 
+            for _func in self.external_resizes:
+                _func()
 
     # -----------------------------
     # Abstract methods
