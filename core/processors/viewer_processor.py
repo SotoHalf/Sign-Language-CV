@@ -139,22 +139,52 @@ class ViewerProcessor(FrameProcessor):
         if self.current_frame_idx == 0:
             print(f"Loop completed for {self._current_label()}[{self.current_record_idx}]")
 
+    def _normalize_for_display(self, pts, w, h):
+        """
+        Scale and center landmarks for consistent visualization for different cameras
+        """
+
+        pts_2d = pts[:, :2]
+
+        min_xy = pts_2d.min(axis=0)
+        max_xy = pts_2d.max(axis=0)
+
+        center = (min_xy + max_xy) / 2.0
+
+        size = max(max_xy - min_xy)
+        size = max(size, 1e-6)
+
+        target_scale = min(w, h) * 0.45 / size
+
+        screen_center = np.array([w / 2, h / 2])
+
+        pts_norm = (pts_2d - center) * target_scale + screen_center
+
+        return pts_norm
+
     def _landmarks_to_frame(self, frame, row):
         h, w = frame.shape[:2]
-        cx, cy = w // 2, h // 1.25
-        scale = min(w, h) * 0.2
+        #cx, cy = w // 2, h // 1.25
+        #scale = min(w, h) * 0.2
 
         lm_cols = [f"lm{i}_{axis}" for i in range(0, self.total_landmarks) for axis in ("x","y","z")]
         lms_full = row[lm_cols].values.reshape(-1, 3)
+
+        pts = lms_full
+        pts_2d = self._normalize_for_display(pts, w, h)
         
         for start, end in HAND_CONNECTIONS:
-            p1 = (int(lms_full[start][0] * scale + cx), int(lms_full[start][1] * scale + cy))
-            p2 = (int(lms_full[end][0] * scale + cx), int(lms_full[end][1] * scale + cy))
+            #p1 = (int(lms_full[start][0] * scale + cx), int(lms_full[start][1] * scale + cy))
+            #p2 = (int(lms_full[end][0] * scale + cx), int(lms_full[end][1] * scale + cy))
+            p1 = (int(pts_2d[start][0]), int(pts_2d[start][1]))
+            p2 = (int(pts_2d[end][0]), int(pts_2d[end][1]))
             cv.line(frame, p1, p2, (100, 100, 255), 2)
 
         for i, lm in enumerate(lms_full):
-            px = int(lm[0] * scale + cx)
-            py = int(lm[1] * scale + cy)
+            #px = int(lm[0] * scale + cx)
+            #py = int(lm[1] * scale + cy)
+            px = int(pts_2d[i][0])
+            py = int(pts_2d[i][1])
             color = (0, 255, 0) if i == 0 else (255, 0, 255)
             radius = 8 if i == 0 else 4
             cv.circle(frame, (px, py), radius, color, -1)
@@ -174,7 +204,7 @@ class ViewerProcessor(FrameProcessor):
     # ---------------------------------------
 
     def process(self, frame: np.ndarray) -> np.ndarray:
-        # Control de tiempo para respetar FPS
+        # Control time to respect fps
         import time
         current_time = time.time() * 1000  # ms
         

@@ -7,11 +7,34 @@ import time
 import numpy as np
 from collections import deque
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout, QListWidget, QPushButton, QLabel
 from PySide6.QtCore import QTimer
 
 from core.window.webcam_window import WebcamWindow
 from core.processors.recording_processor import RecordingProcessor
+
+class StartSelectorDialog(QDialog):
+    def __init__(self, labels, parent=None):
+        super().__init__(parent)
+
+        self.setWindowTitle("Start From")
+        self.setFixedSize(220, 300)
+
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Selecciona letra inicial:"))
+
+        self.list_widget = QListWidget()
+        self.list_widget.addItems(labels)
+        layout.addWidget(self.list_widget)
+
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(self.accept)
+        layout.addWidget(ok_btn)
+
+    def selected_letter(self):
+        item = self.list_widget.currentItem()
+        return item.text() if item else None
 
 
 VIDEOS_PATH = "data/resources/lse_videos"
@@ -26,11 +49,19 @@ STACK_VIDEOS = deque([
     for _ in range(2)
 ])
 
+MAP_VIDEO_TO_LETTER = {
+    "n-fuerte": u"ñ"
+}
+
+MAP_LETTER_TO_VIDEO = {
+    u"ñ": "n-fuerte"
+}
+
 if not STACK_VIDEOS:
     print("No videos found")
     sys.exit()
 
-PROCESSOR = RecordingProcessor(max_sequences_per_record=10)
+PROCESSOR = RecordingProcessor(max_sequences_per_record=5)
 
 def main():
     app = QApplication(sys.argv)
@@ -51,7 +82,7 @@ def main():
 
     right_left_tracker =  set()
 
-    phase = "idle"   # idle, demo, recording # in demo ask for ready?
+    phase = "idle"   # idle, demo, recording
 
     # Manage Controls
     def position_confirm_button():
@@ -74,20 +105,55 @@ def main():
         confirm_button.move(int(x), int(y))
         confirm_button.raise_()
 
+    def jump_stack_to_letter(target_letter):
+        target_letter = target_letter.strip().lower()
+
+        while STACK_VIDEOS:
+            current_label, _ = STACK_VIDEOS[0]
+
+            if current_label.lower() == target_letter:
+                print(f"Jumping to letter: {current_label}")
+                return True
+
+            STACK_VIDEOS.popleft()
+
+        return False
+
     def start():
         nonlocal recording_started
+
         if recording_started:
             return
-        
+
+        available_letters = []
+        visited = set()
+
+        for lbl, _ in STACK_VIDEOS:
+            letter = MAP_VIDEO_TO_LETTER.get(lbl, lbl)
+            if letter not in visited:
+                available_letters.append(letter.upper())
+                visited.add(letter)
+
+        selector = StartSelectorDialog(available_letters, window)
+
+        if selector.exec():
+            selected = selector.selected_letter()
+            if selected:
+                selected = selected.lower()
+                jump_stack_to_letter(MAP_LETTER_TO_VIDEO.get(selected, selected))
+
         recording_started = True
         load_next()
+
     
     def load_next():
         nonlocal video_cap, label, phase, text_to_print
 
+        PROCESSOR.save_records()
+
         if not STACK_VIDEOS:
             print("Finished dataset")
-            PROCESSOR.save_records()
+            #PROCESSOR.save_records()
             app.quit()
             return
         

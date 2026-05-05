@@ -38,6 +38,9 @@ class RecordingProcessor(FrameProcessor):
         self._countdown_start_time = 0.0
         self._countdown_duration = 3.0      # seconds
         self._flash_until = 0.0             # timestamp until flash effect
+        # time for the next record
+        self._cooldown_until = 0.0
+        self._cooldown_duration = 1.5  # seconds
 
         # Records manage
         self.records: Dict[str, List[SequenceRecord]] = {}
@@ -125,6 +128,9 @@ class RecordingProcessor(FrameProcessor):
     def is_countdown(self) -> bool:
         return self._is_countdown
     
+    def _is_cooldown(self):
+        return time.time() < self._cooldown_until
+    
     # MAIN PROCESS (override)
 
     def process(self, frame: np.ndarray) -> np.ndarray:
@@ -144,9 +150,9 @@ class RecordingProcessor(FrameProcessor):
         frame = self._draw_visual_feedback(frame)
 
         # if the user is recording
-        if self._recording_active:
+        if self._recording_active and not self._is_cooldown():
             # Get landmarks
-            landmarks_raw = self.tracker.exportLandmarks(frame, hand_id=0, draw=False)
+            landmarks_raw = self.tracker.exportLandmarks(frame, hand_id=0, draw=True)
             if landmarks_raw is not None and len(landmarks_raw) > 0:
                 landmarks_np = np.array(landmarks_raw, dtype=np.float32)
                 self.landmark_handler.add_frame(landmarks_np)
@@ -168,6 +174,8 @@ class RecordingProcessor(FrameProcessor):
                 self._flash_until = time.time() + 0.15  # 150ms flash
                 
                 self.landmark_handler.clear()
+
+                self._cooldown_until = time.time() + self._cooldown_duration
                 
                 # Decrement remaining sequences for this label
                 remaining = self.current_sequences_per_record.get(self.current_label, 0) - 1
@@ -234,6 +242,14 @@ class RecordingProcessor(FrameProcessor):
                         f"Records: {self.get_count_records_by_label(self.get_current_label())}", 
                         (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA
                         )
+
+        # Cooldown        
+        if time.time() < self._cooldown_until:
+            remaining = self._cooldown_until - time.time()
+            cv2.putText(frame, f"RESETTING... {remaining:.1f}s",
+                        (w//2 - 120, h//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                        (255, 0, 0), 2)
         
         return frame
 

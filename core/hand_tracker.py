@@ -64,7 +64,7 @@ class HandTracker:
         px = min(max(int(landmark.x * w), 0), w-1)
         py = min(max(int(landmark.y * h), 0), h-1)
         return px, py
-
+    
     def findHands(self, frame: np.ndarray, draw: bool = True) -> np.ndarray:
     
         # Resize to improve acceleration
@@ -121,7 +121,7 @@ class HandTracker:
                 px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
                 lmList.append([id, px, py])
                 if draw:
-                    cv2.circle(frame, (px, py), 10, (255, 255, 0), cv2.FILLED)
+                    cv2.circle(frame, (px, py), 6, (255, 255, 0), cv2.FILLED)
         return lmList
 
     def exportLandmarks(
@@ -137,7 +137,7 @@ class HandTracker:
                 landmarksPosition.append([lm.x, lm.y, lm.z])
                 if draw:
                     px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
-                    cv2.circle(frame, (px, py), 10, (255, 255, 0), cv.FILLED)
+                    cv2.circle(frame, (px, py), 6, (255, 255, 0), cv2.FILLED)
         return landmarksPosition
 
     def getHandedness(self) -> list:
