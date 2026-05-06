@@ -38,6 +38,12 @@ class ViewerProcessor(FrameProcessor):
         self.is_playing = True
         self.last_update_time = 0
 
+        #center
+        self._display_ref_center = None
+        self._display_ref_scale = None
+
+        self._init_display_reference()
+
     # ---------------------------------------
     # LOAD DATA
     # ---------------------------------------
@@ -90,6 +96,7 @@ class ViewerProcessor(FrameProcessor):
         self.current_frame_idx = 0
         self.is_playing = True
         print(f"Label: {self._current_label()}")
+        self._init_display_reference()
 
     def prev_label(self):
         self.current_label_idx = (self.current_label_idx - 1) % len(self.labels)
@@ -97,18 +104,21 @@ class ViewerProcessor(FrameProcessor):
         self.current_frame_idx = 0
         self.is_playing = True
         print(f"Label: {self._current_label()}")
+        self._init_display_reference()
 
     def next_record(self):
         records = self._current_records()
         self.current_record_idx = (self.current_record_idx + 1) % len(records)
         self.current_frame_idx = 0
         self.is_playing = True
+        self._init_display_reference()
 
     def prev_record(self):
         records = self._current_records()
         self.current_record_idx = (self.current_record_idx - 1) % len(records)
         self.current_frame_idx = 0
         self.is_playing = True
+        self._init_display_reference()
 
     def next_frame(self):
         df = self._current_df()
@@ -127,6 +137,7 @@ class ViewerProcessor(FrameProcessor):
     def reset(self):
         self.current_frame_idx = 0
         self.is_playing = True
+        self._init_display_reference()
 
     def _update_frame(self):
         """Advance to next frame if playing"""
@@ -139,10 +150,13 @@ class ViewerProcessor(FrameProcessor):
         if self.current_frame_idx == 0:
             print(f"Loop completed for {self._current_label()}[{self.current_record_idx}]")
 
-    def _normalize_for_display(self, pts, w, h):
-        """
-        Scale and center landmarks for consistent visualization for different cameras
-        """
+    
+    def _init_display_reference(self):
+        df = self._current_df()
+        first_row = df.iloc[0]
+
+        lm_cols = [f"lm{i}_{axis}" for i in range(0, self.total_landmarks) for axis in ("x","y","z")]
+        pts = first_row[lm_cols].values.reshape(-1, 3)
 
         pts_2d = pts[:, :2]
 
@@ -150,15 +164,26 @@ class ViewerProcessor(FrameProcessor):
         max_xy = pts_2d.max(axis=0)
 
         center = (min_xy + max_xy) / 2.0
-
         size = max(max_xy - min_xy)
         size = max(size, 1e-6)
 
-        target_scale = min(w, h) * 0.45 / size
+        self._display_ref_center = center
+        self._display_ref_scale = min(self.frame_w, self.frame_h) * 0.45 / size
+
+    def _normalize_for_display(self, pts, w, h):
+        """
+        Scale and center landmarks for consistent visualization for different cameras
+        """
+
+        pts_2d = pts[:, :2]
 
         screen_center = np.array([w / 2, h / 2])
 
-        pts_norm = (pts_2d - center) * target_scale + screen_center
+        pts_norm = (
+            (pts_2d - self._display_ref_center)
+            * self._display_ref_scale
+            + screen_center
+        )
 
         return pts_norm
 
