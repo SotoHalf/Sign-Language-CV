@@ -1,9 +1,9 @@
 import os
 from abc import ABC, abstractmethod
 import numpy as np
-from core.utils import load_env
+from core.utils import AppPaths
 
-load_env()
+AppPaths.load_env()
 
 class FrameProcessor(ABC):
     """

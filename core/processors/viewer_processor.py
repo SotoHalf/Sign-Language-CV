@@ -5,11 +5,10 @@ import numpy as np
 import pandas as pd
 
 from core.processors.frame_processor import FrameProcessor
-from core.utils import load_env, get_project_root
+from core.utils import AppPaths
 from core.hand_tracker import HAND_CONNECTIONS
 
-load_env()
-
+AppPaths.load_env()
 
 class ViewerProcessor(FrameProcessor):
     def __init__(self, data_dir: str, frame_size=(640, 480), fps: int = 30):
@@ -249,8 +248,7 @@ if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
     from core.window.empty_window import EmptyWindow
 
-    ROOT_PATH = get_project_root() or "./"
-    DATA_PATH = os.path.join(ROOT_PATH, os.getenv("DATA_PATH", "data/processed/"))
+    DATA_PATH = AppPaths.path(os.getenv("DATA_PATH", "data/processed/"))
 
     app = QApplication(sys.argv)
 

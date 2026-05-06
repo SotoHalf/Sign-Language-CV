@@ -212,15 +212,14 @@ class ModelTrainer:
 
 if __name__ == "__main__":
     from core.data_loader import DataLoader
-    from core.utils import load_env, get_project_root
+    from core.utils import AppPaths
+    import os
 
-    load_env()
+    AppPaths.load_env()
 
-    # Configuration
-    ROOT_PATH = get_project_root() or "./"
-    DATA_PATH      = os.path.join(ROOT_PATH,os.getenv("DATA_PATH", "data/processed/"))
-    MODEL_OUTPUT   = os.path.join(ROOT_PATH,os.getenv("SIGN_TRANSLATE_MODEL", "models/sign_lstm.keras"))
-    ENCODER_OUTPUT = os.path.join(ROOT_PATH,os.getenv("LABEL_ENCODER_FILE", "models/sign_lstm_encoder.npy"))
+    DATA_PATH = AppPaths.path(os.getenv("DATA_PATH", "data/processed"))
+    MODEL_OUTPUT = AppPaths.path(os.getenv("SIGN_TRANSLATE_MODEL", "models/sign_lstm.keras"))
+    ENCODER_OUTPUT = AppPaths.path(os.getenv("LABEL_ENCODER_FILE", "models/sign_lstm_encoder.npy"))
 
     # Load data
     loader = DataLoader(DATA_PATH, test_size=0.15, val_size=0.15, random_state=42)

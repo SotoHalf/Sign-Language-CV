@@ -5,6 +5,7 @@ import time
 import socket
 import hashlib
 from dotenv import load_dotenv
+from pathlib import Path
 
 def generate_unique_id() -> str:
     """
@@ -18,7 +19,23 @@ def generate_unique_id() -> str:
 
     return f"{machine_hash}_{timestamp}_{random_part}" 
 
+class AppPaths:
+    if getattr(sys, "frozen", False):
+        ROOT = Path(sys.executable).parent
+    else:
+        ROOT = Path(__file__).resolve().parents[1]
 
+    @classmethod
+    def path(cls, *parts):
+        return str(cls.ROOT.joinpath(*parts))
+
+    @classmethod
+    def load_env(cls):
+        env = cls.path(".env")
+        if Path(env).exists():
+            load_dotenv(env)
+
+"""
 def get_project_root():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(current_dir, ".."))
@@ -26,10 +43,10 @@ def get_project_root():
     return project_root
 
 def get_project_root() -> None:
-    """
+    '''
     Returns the absolute path to the project's root
     Works both in normal execution and when packaged with PyInstaller
-    """
+    '''
     if getattr(sys, 'frozen', False):
         # running as a PyInstaller, use the temp folder
         # NOT TESTED
@@ -44,12 +61,12 @@ def get_project_root() -> None:
     return os.path.abspath(os.path.join(base_path, ".."))
 
 def load_env(dotenv_filename: str = ".env") -> None:
-    """
+    '''
     Load environment variables from a .env file.
     Works both in normal execution and in PyInstaller.
 
     :param dotenv_filename: Name of the .env file (default: ".env")
-    """
+    '''
 
     project_root = get_project_root()
     if project_root:
@@ -58,3 +75,5 @@ def load_env(dotenv_filename: str = ".env") -> None:
         # Load the .env if it exists
         if os.path.exists(dotenv_path):
             load_dotenv(dotenv_path)
+
+"""

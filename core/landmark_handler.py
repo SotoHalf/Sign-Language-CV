@@ -1,11 +1,11 @@
 import os
 import sys
-from core.utils import load_env
+from core.utils import AppPaths
 from collections import deque
 import numpy as np
 import pandas as pd
 
-load_env()
+AppPaths.load_env()
 
 class LandmarkHandler:
 

@@ -8,9 +8,9 @@ from typing import Dict, List
 from core.processors.frame_processor import FrameProcessor
 from core.hand_tracker import HandTracker
 from core.landmark_handler import LandmarkHandler
-from core.utils import generate_unique_id, get_project_root, load_env
+from core.utils import generate_unique_id, AppPaths
 
-load_env()
+AppPaths.load_env()
 
 class SequenceRecord:
     def __init__(self, raw: pd.DataFrame, processed: pd.DataFrame):
@@ -260,13 +260,12 @@ class RecordingProcessor(FrameProcessor):
         Save recorded sequences into raw and processed folders organized by label.
         Each sequence gets a unique ID used in both raw and processed CSVs.
         """
+    
+        data_raw_path = AppPaths.path(os.getenv("DATA_RAW_PATH", "data/raw/"))
+        data_processed_path = AppPaths.path(os.getenv("DATA_PATH", "data/processed/"))
 
-        project_root = get_project_root() or './'
-        data_raw_path = os.getenv("DATA_RAW_PATH", "data/raw/")
-        data_processed_path = os.getenv("DATA_PATH", "data/processed/")
-
-        raw_dir = output_path_raw or os.path.join(project_root, data_raw_path)
-        processed_dir = output_path_processed or os.path.join(project_root, data_processed_path)
+        raw_dir = output_path_raw or AppPaths.path(data_raw_path)
+        processed_dir = output_path_processed or AppPaths.path(data_processed_path)
 
         if not self.records:
             print("No records to save")

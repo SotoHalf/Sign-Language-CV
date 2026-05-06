@@ -130,14 +130,13 @@ if __name__ == "__main__":
     from core.processors.inference_processor import InferenceProcessor
     from core.window.webcam_window import WebcamWindow
     from PySide6.QtWidgets import QApplication
-    from core.utils import load_env, get_project_root
+    from core.utils import AppPaths
 
-    load_env()
+    AppPaths.load_env()
 
     # Configuration
-    ROOT_PATH    = get_project_root() or "./"
-    MODEL_PATH   = os.path.join( ROOT_PATH,os.getenv("SIGN_TRANSLATE_MODEL", "models/sign_lstm.keras"))
-    ENCODER_OUTPUT = os.path.join( ROOT_PATH,os.getenv("LABEL_ENCODER_FILE", "models/sign_lstm.npy"))
+    MODEL_PATH   = AppPaths.path(os.getenv("SIGN_TRANSLATE_MODEL", "models/sign_lstm.keras"))
+    ENCODER_OUTPUT = AppPaths.path(os.getenv("LABEL_ENCODER_FILE", "models/sign_lstm.npy"))
 
     # Load data
     app = QApplication(sys.argv)

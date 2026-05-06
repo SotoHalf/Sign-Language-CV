@@ -4,12 +4,12 @@ import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-from core.utils import get_project_root, load_env
+from core.utils import AppPaths
 import numpy as np
 from typing import Any, List
 
 
-load_env()
+AppPaths.load_env()
 
 # Hand Conections for MediaPipe Hands
 HAND_CONNECTIONS = [
@@ -31,13 +31,11 @@ class HandTracker:
     ) -> None:
         
         if model_path is None:
-            root = get_project_root() or './'
-            
             model_relative = os.getenv("HAND_DETECTION_MODEL")
             if model_relative is None:
                 raise ValueError("HAND_DETECTION_MODEL not defined in .env")
             
-            model_path = os.path.join(root, model_relative)
+            model_path = AppPaths.path(model_relative)
         
         self.max_hands = max_hands
         self.min_detection_confidence = min_detection_confidence
