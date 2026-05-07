@@ -14,6 +14,7 @@ AppPaths.load_env()
 
 class SequenceRecord:
     def __init__(self, raw: pd.DataFrame, processed: pd.DataFrame):
+        self.uid =  generate_unique_id()
         self.raw = raw
         self.processed = processed
 
@@ -280,15 +281,17 @@ class RecordingProcessor(FrameProcessor):
             os.makedirs(processed_label_dir, exist_ok=True)
 
             for seq in sequences:
-                uid = generate_unique_id()  # One UID per sequence
+                uid = seq.uid # One UID per sequence
 
                 # Save RAW
                 raw_path = os.path.join(raw_label_dir, f"{uid}.csv")
-                seq.raw.to_csv(raw_path, index=False)
+                if not os.path.exists(raw_path):
+                    seq.raw.to_csv(raw_path, index=False)
 
                 # Save PROCESSED
                 processed_path = os.path.join(processed_label_dir, f"{uid}.csv")
-                seq.processed.to_csv(processed_path, index=False)
+                if not os.path.exists(processed_path):
+                    seq.processed.to_csv(processed_path, index=False)
 
             print(f"Saved {len(sequences)} sequences for label '{label}'")
 

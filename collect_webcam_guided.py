@@ -12,6 +12,7 @@ from PySide6.QtCore import QTimer
 
 from core.window.webcam_window import WebcamWindow
 from core.processors.recording_processor import RecordingProcessor
+from core.utils import AppPaths
 
 class StartSelectorDialog(QDialog):
     def __init__(self, labels, parent=None):
@@ -37,7 +38,7 @@ class StartSelectorDialog(QDialog):
         return item.text() if item else None
 
 
-VIDEOS_PATH = "data/resources/lse_videos"
+VIDEOS_PATH = AppPaths.path("data/resources/lse_videos")
 
 STACK_VIDEOS = deque([
     (

@@ -6,8 +6,9 @@ from collections import deque
 
 from core.window.video_window import VideoWindow
 from core.processors.recording_processor import RecordingProcessor
+from core.utils import AppPaths
 
-VIDEOS_PATH = "data/resources/lse_videos"
+VIDEOS_PATH = AppPaths.path("data/resources/lse_videos")
 
 def main():
     

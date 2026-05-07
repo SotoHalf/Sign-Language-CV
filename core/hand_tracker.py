@@ -36,6 +36,7 @@ class HandTracker:
                 raise ValueError("HAND_DETECTION_MODEL not defined in .env")
             
             model_path = AppPaths.path(model_relative)
+            print(model_path)
         
         self.max_hands = max_hands
         self.min_detection_confidence = min_detection_confidence

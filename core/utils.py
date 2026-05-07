@@ -22,6 +22,7 @@ def generate_unique_id() -> str:
 class AppPaths:
     if getattr(sys, "frozen", False):
         ROOT = Path(sys.executable).parent
+        #ROOT = Path(sys._MEIPASS)
     else:
         ROOT = Path(__file__).resolve().parents[1]
 
