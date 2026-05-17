@@ -151,7 +151,6 @@ def run(app):
 
         if not STACK_VIDEOS:
             print("Finished dataset")
-            #PROCESSOR.save_records()
             app.quit()
             return
         

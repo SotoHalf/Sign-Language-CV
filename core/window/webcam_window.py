@@ -15,7 +15,7 @@ class WebcamWindow(BaseWindow):
         if not self.cams:
             self.show_dialog("Error", "No webcams detected")
             return
-
+        
         cam_id, _ = self.cams[0]
         self.init_camera(cam_id)
 
@@ -84,5 +84,7 @@ class WebcamWindow(BaseWindow):
     def get_available_cameras():
         cameras = []
         for camera_info in enumerate_cameras():
-            cameras.append((camera_info.index, camera_info.name))
+            cap = cv2.VideoCapture(camera_info.index)
+            if cap.isOpened():
+                cameras.append((camera_info.index, camera_info.name))
         return cameras
