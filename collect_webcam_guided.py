@@ -64,11 +64,8 @@ if not STACK_VIDEOS:
 
 PROCESSOR = RecordingProcessor(max_sequences_per_record=5)
 
-def main():
-    app = QApplication(sys.argv)
-
+def run(app):
     window = WebcamWindow(
-        0,
         width=1280,
         height=720,
         frame_processor=PROCESSOR
@@ -290,8 +287,10 @@ def main():
     window.external_resizes.append(position_confirm_button)
 
     window.show()
-    sys.exit(app.exec())
+    return window
 
 
 if __name__ == "__main__":
-    main()
+    app = QApplication(sys.argv)
+    window = run(app)
+    sys.exit(app.exec())

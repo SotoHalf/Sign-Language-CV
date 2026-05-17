@@ -160,7 +160,6 @@ if __name__ == "__main__":
     n_frames = fps * duration
 
     window = WebcamWindow(
-        0,
         width=480, 
         height=320, 
         #width=1280, 

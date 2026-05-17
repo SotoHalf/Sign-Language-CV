@@ -1,16 +1,23 @@
 import cv2
 from core.window.base_window import BaseWindow
 from PySide6.QtWidgets import QInputDialog
+from cv2_enumerate_cameras import enumerate_cameras
 
 
 class WebcamWindow(BaseWindow):
 
-    def __init__(self, webcam_id, **kwargs):
-        self.webcam_id = webcam_id
+    def __init__(self, **kwargs):
+        self.cams = WebcamWindow.get_available_cameras()
         super().__init__(**kwargs)
 
     def setup(self):
-        self.init_camera(self.webcam_id)
+       
+        if not self.cams:
+            self.show_dialog("Error", "No webcams detected")
+            return
+
+        cam_id, _ = self.cams[0]
+        self.init_camera(cam_id)
 
         self.add_button(
             "select_cam",
@@ -23,27 +30,27 @@ class WebcamWindow(BaseWindow):
         )
 
     def select_camera(self):
-        cams = WebcamWindow.get_available_cameras()
-
-        if not cams:
+        if not self.cams:
             self.show_dialog("Error", "No webcams detected")
             return
 
-        cam_str = [str(c) for c in cams]
+        names = [name for _, name in self.cams]
 
-        selected, ok = QInputDialog.getItem(
+        selected_name, ok = QInputDialog.getItem(
             self,
             "Seleccionar cámara",
             "Webcams disponibles:",
-            cam_str,
+            names,
             0,
             False
         )
 
         if ok:
-            cam_id = int(selected)
-            self.webcam_id = cam_id
-            self.init_camera(cam_id)
+            for cam_id, name in self.cams:
+                if name == selected_name:
+                    self.webcam_id = cam_id
+                    self.init_camera(cam_id)
+                    break
 
     def init_camera(self, cam_id):
         if hasattr(self, "cap") and self.cap.isOpened():
@@ -73,11 +80,9 @@ class WebcamWindow(BaseWindow):
             self.cap.release()
         self.timer.start(BaseWindow.DEFAULT_TIMER)
 
-    def get_available_cameras(max_tested=5):
-        available = []
-        for i in range(max_tested):
-            cap = cv2.VideoCapture(i)
-            if cap is not None and cap.isOpened():
-                available.append(i)
-                cap.release()
-        return available
+    @staticmethod
+    def get_available_cameras():
+        cameras = []
+        for camera_info in enumerate_cameras():
+            cameras.append((camera_info.index, camera_info.name))
+        return cameras

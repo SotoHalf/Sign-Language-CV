@@ -10,6 +10,10 @@ class FrameProcessor(ABC):
     Interface for processing frames.
     """
 
+    def __init__(self):
+        self.finished = False
+        self.finished_reason = ""
+
     @classmethod
     def get_default_n_frames(cls) -> int:
         fps = int(os.getenv("CAPTURE_FRAME_RATE_FPS", 30))

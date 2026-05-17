@@ -12,10 +12,12 @@ AppPaths.load_env()
 
 class ViewerProcessor(FrameProcessor):
     def __init__(self, data_dir: str, frame_size=(640, 480), fps: int = 30):
+        super().__init__()
         self.data_dir = data_dir
         self.frame_w, self.frame_h = frame_size
         self.fps = fps
         self.delay_ms = int(1000 / fps)  # 33ms para 30fps
+        self.size_factor = 0.60
 
         self.total_landmarks = int(os.getenv("HAND_TOTAL_LANDMARKS", 21))
 
@@ -26,7 +28,7 @@ class ViewerProcessor(FrameProcessor):
         self._load_data()
 
         if not self.labels:
-            raise RuntimeError(f"No data found in {self.data_dir}")
+            raise RuntimeError(f"There are no records found in {self.data_dir}")
 
         # navegation
         self.current_label_idx = 0
@@ -44,7 +46,7 @@ class ViewerProcessor(FrameProcessor):
         self._init_display_reference()
 
     # ---------------------------------------
-    # LOAD DATA
+    # DATA
     # ---------------------------------------
 
     def _load_data(self):
@@ -66,8 +68,60 @@ class ViewerProcessor(FrameProcessor):
             if not files:
                 continue
 
-            self.records_by_label[label] = [pd.read_csv(f) for f in files]
+            #self.records_by_label[label] = [pd.read_csv(f) for f in files]
+            records = []
+            for f in files:
+                df = pd.read_csv(f)
+                df.attrs["file_path"] = f
+                records.append(df)
+
+            self.records_by_label[label] = records
             self.labels.append(label)
+
+
+    def delete_current_record(self):
+        label = self._current_label()
+        records = self._current_records()
+
+        if not records:
+            return
+
+        df = records[self.current_record_idx]
+        file_path = df.attrs.get("file_path", None)
+        base_dir = os.path.dirname(file_path)
+
+        # 1. delete file from disk
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Deleted file: {file_path}")
+
+        # 2. remove from memory
+        del records[self.current_record_idx]
+
+        # case 1: still records in label
+        if len(records) > 0:
+            self.current_record_idx = min(self.current_record_idx, len(records) - 1)
+            self.current_frame_idx = 0
+            self._init_display_reference()
+            return
+        
+        # case 2: label is empty remove label
+        print(f"Label '{label}' is empty, removing it")
+        del self.records_by_label[label]
+        self.labels.remove(label)
+
+        # case 3: no more labels end program
+        if not self.labels:
+            self.finished = True
+            self.is_playing = False
+            self.finished_reason = "All recordings have been deleted.\nThere are no more signs available to display."
+            return 
+
+        # case 4: move to next label safely
+        self.current_label_idx %= len(self.labels)
+        self.current_record_idx = 0
+        self.current_frame_idx = 0
+        self._init_display_reference()
 
     # ---------------------------------------
     # GETTERS
@@ -146,28 +200,25 @@ class ViewerProcessor(FrameProcessor):
         df = self._current_df()
         self.current_frame_idx = (self.current_frame_idx + 1) % len(df)
         
-        if self.current_frame_idx == 0:
-            print(f"Loop completed for {self._current_label()}[{self.current_record_idx}]")
 
-    
     def _init_display_reference(self):
         df = self._current_df()
-        first_row = df.iloc[0]
 
-        lm_cols = [f"lm{i}_{axis}" for i in range(0, self.total_landmarks) for axis in ("x","y","z")]
-        pts = first_row[lm_cols].values.reshape(-1, 3)
+        lm_cols = [f"lm{i}_{axis}" for i in range(self.total_landmarks) for axis in ("x","y","z")]
 
-        pts_2d = pts[:, :2]
+        all_pts = np.stack([
+            df[lm_cols].iloc[i].values.reshape(-1, 3)[:, :2]
+            for i in range(len(df))
+        ])
 
-        min_xy = pts_2d.min(axis=0)
-        max_xy = pts_2d.max(axis=0)
+        min_xy = all_pts.min(axis=(0, 1))
+        max_xy = all_pts.max(axis=(0, 1))
 
         center = (min_xy + max_xy) / 2.0
-        size = max(max_xy - min_xy)
-        size = max(size, 1e-6)
+        size = np.max(max_xy - min_xy)
 
         self._display_ref_center = center
-        self._display_ref_scale = min(self.frame_w, self.frame_h) * 0.45 / size
+        self._display_ref_scale = min(self.frame_w, self.frame_h) * self.size_factor / max(size, 1e-6)
 
     def _normalize_for_display(self, pts, w, h):
         """
@@ -252,7 +303,15 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    processor = ViewerProcessor(DATA_PATH, fps=30)
+    try:
+        processor = ViewerProcessor(DATA_PATH, fps=30)
+    except RuntimeError as e:
+        QMessageBox.critical(
+            None,
+            "Error loading data",
+            str(e)
+        )
+        sys.exit(1)
 
     window = EmptyWindow(
         width=800,
@@ -285,7 +344,7 @@ if __name__ == "__main__":
     # SIGN (label)
     window.add_button(
         "prev_sign",
-        text="⬅ Sign",
+        text="🡸 Sign",
         action=processor.prev_label,
         tooltip="Previous sign",
         alignment="right",
@@ -294,7 +353,7 @@ if __name__ == "__main__":
 
     window.add_button(
         "next_sign",
-        text="➡ Sign",
+        text="🡺 Sign",
         action=processor.next_label,
         tooltip="Next sign",
         alignment="right",
@@ -304,7 +363,7 @@ if __name__ == "__main__":
     # RECORDING
     window.add_button(
         "prev_recording",
-        text="⬅ Rec",
+        text="🡸 Rec",
         action=processor.prev_record,
         tooltip="Previous recording",
         shortcut="Left",
@@ -314,7 +373,7 @@ if __name__ == "__main__":
 
     window.add_button(
         "next_recording",
-        text="Rec ➡",
+        text="Rec 🡺",
         action=processor.next_record,
         tooltip="Next recording",
         shortcut="Right",
@@ -325,7 +384,7 @@ if __name__ == "__main__":
     # FRAME CONTROL (fine control)
     window.add_button(
         "prev_frame",
-        text="⬅ Frame",
+        text="🡸 Frame",
         action=processor.prev_frame,
         tooltip="Previous frame (pause mode)",
         alignment="right",
@@ -334,12 +393,27 @@ if __name__ == "__main__":
 
     window.add_button(
         "next_frame",
-        text="Frame ➡",
+        text="Frame 🡺",
         action=processor.next_frame,
         tooltip="Next frame (pause mode)",
         alignment="right",
         width=80
     )
+
+    window.add_button(
+        "delete_record",
+        text="Delete",
+        action=processor.delete_current_record,
+        tooltip="Delete current recording",
+        color=EmptyWindow.COLORS['red'],
+        hover_color=EmptyWindow.COLORS['red'],
+        alignment="right",
+        width=70
+    )
+
+    window.show()
+    sys.exit(app.exec())
+
 
     window.show()
     sys.exit(app.exec())

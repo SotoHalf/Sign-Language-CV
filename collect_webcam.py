@@ -18,7 +18,7 @@ PROCESSOR = RecordingProcessor()
 def main():
     app = QApplication(sys.argv)
     
-    window = WebcamWindow(0, width=1280, height=720, frame_processor=PROCESSOR)
+    window = WebcamWindow(width=1280, height=720, frame_processor=PROCESSOR)
         
     def toggle_record():
         # Start countdown only if not already recording or counting down

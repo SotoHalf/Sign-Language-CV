@@ -146,7 +146,6 @@ if __name__ == "__main__":
 
     # Create window with processor
     window = WebcamWindow(
-        0,  # camera index
         width=1280,
         height=720,
         frame_processor=processor

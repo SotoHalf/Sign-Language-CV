@@ -37,7 +37,7 @@ class BaseWindow(QWidget):
         "red_hover": "#e25b39",
     }
     
-    def __init__(self, width=800, height=600, frame_processor: FrameProcessor=None):
+    def __init__(self, width=800, height=600, frame_processor: FrameProcessor=None, paint_fps: bool = True):
         """
         Initialize the BaseWindow.
 
@@ -52,11 +52,43 @@ class BaseWindow(QWidget):
         super().__init__()
 
         self._frame_processor = frame_processor
+        self._paint_fps = paint_fps
         self._processing_frame = False
 
-        # Window Styles
+        self.finished = False
+        self.finished_reason = ""
+
         self.setStyleSheet(f"""
-            QWidget {{ background-color: {self.COLORS["bg"]}; }}
+            QWidget {{
+                background-color: {self.COLORS["bg"]};
+                color: {self.COLORS["white"]};
+            }}
+
+            QLabel {{
+                color: {self.COLORS["white"]};
+            }}
+
+            QListWidget {{
+                background-color: #2a2a2a;
+                color: {self.COLORS["white"]};
+                border: 1px solid #444;
+            }}
+
+            QLineEdit {{
+                background-color: #2a2a2a;
+                color: {self.COLORS["white"]};
+                border: 1px solid #444;
+                padding: 4px;
+            }}
+
+            QInputDialog {{
+                color: {self.COLORS["white"]};
+            }}
+
+            QMessageBox {{
+                color: {self.COLORS["white"]};
+            }}
+
             QPushButton {{
                 color: {self.COLORS["white"]};
                 border: none;
@@ -129,6 +161,7 @@ class BaseWindow(QWidget):
         action=None,
         width=60,
         height=30,
+        txt_size=10,
         color=None,
         hover_color=None,
         tooltip=None,
@@ -140,6 +173,11 @@ class BaseWindow(QWidget):
             raise Exception(f"Button {name} already exists")
 
         btn = QPushButton(text)
+        font = btn.font()
+        font.setPointSize(txt_size)
+        if txt_size > 10:
+            font.setBold(True)
+        btn.setFont(font)
         btn.setFixedSize(width, height)
         btn.setCheckable(checkable)
 
@@ -244,7 +282,6 @@ class BaseWindow(QWidget):
             painter.drawText(self.frame_height//2, self.frame_width//2, self.overlay_text)
 
         painter.end()
-
     
     def _update_frame(self):
         '''
@@ -273,8 +310,22 @@ class BaseWindow(QWidget):
             if frame is None:
                 frame = np.zeros((self.display_label.height(), self.display_label.width(), 3), dtype=np.uint8)
             
-            if self._frame_processor is not None:
+            if self._frame_processor is not None and not self._frame_processor.finished:
                 frame = self._frame_processor.process(frame)
+
+            # can be terminated by window or processor
+            if self.finished or (
+                self._frame_processor and
+                self._frame_processor.finished
+            ):
+                QMessageBox.information(
+                    self,
+                    "Finished",
+                    self.finished_reason or self._frame_processor.finished_reason
+                )
+                self.timer.stop()
+                self.close()
+
             self._show_frame(frame)
             
         finally:
@@ -312,7 +363,8 @@ class BaseWindow(QWidget):
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation
             )
-            self._draw_fps(scaled_pixmap)
+            if self._paint_fps:
+                self._draw_fps(scaled_pixmap)
             self.display_label.setPixmap(scaled_pixmap)
             self.update_button_panel_position() 
             for _func in self.external_resizes:
@@ -385,7 +437,7 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    #window = WebcamWindow(0,width=1280, height=720)
+    #window = WebcamWindow(width=1280, height=720)
     #window = ImageWindow("./imagen_prueba.png")
     window = VideoWindow("video_prueba.mp4", width=1280, height=720)
 

@@ -26,6 +26,7 @@ class RecordingProcessor(FrameProcessor):
     DEFAULT_LABEL = 'Unknown'
 
     def __init__(self, n_frames: int = None, max_sequences_per_record: int = 10):
+        super().__init__()
         if n_frames is None:
             n_frames = self.get_default_n_frames()
 
@@ -305,7 +306,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     
     processor = RecordingProcessor()
-    window = WebcamWindow(0, width=1280, height=720, frame_processor=processor)
+    window = WebcamWindow(width=1280, height=720, frame_processor=processor)
         
     def toggle_record():
         # Start countdown only if not already recording or counting down
