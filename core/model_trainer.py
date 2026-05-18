@@ -12,6 +12,14 @@ from tensorflow.keras.losses import Loss
 from tensorflow.keras.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from tensorflow.keras import backend as K
 
+# test chatgpt
+from tensorflow.keras.layers import (
+    Input, LSTM, Dense, Dropout, Bidirectional,
+    LayerNormalization, GlobalAveragePooling1D,
+    Conv1D, BatchNormalization
+)
+from tensorflow.keras.models import Model
+
 class ModelTrainer:
     """
     Responsible for building, training and evaluating a gesture classification model
@@ -53,7 +61,7 @@ class ModelTrainer:
         self.model: Model = None
         self.history: tf.keras.callbacks.History = None
 
-    def build_model(self) -> None:
+    def build_model_test1_working(self) -> None:
         """
         Build the Keras Sequential model with LSTM layers.
         The architecture:
@@ -91,6 +99,40 @@ class ModelTrainer:
         print("Model built successfully.")
         self.model.summary()
 
+    #test chatgpt
+    def build_model(self) -> None:
+        lstm_units = self.config['lstm_units']
+        dropout_rate = self.config['dropout_rate']
+
+        inputs = Input(shape=self.input_shape)
+
+        x = Conv1D(64, kernel_size=3, padding="same", activation="relu")(inputs)
+        x = BatchNormalization()(x)
+        x = Dropout(0.2)(x)
+
+        x = Bidirectional(
+            LSTM(lstm_units, return_sequences=True)
+        )(x)
+        x = LayerNormalization()(x)
+        x = Dropout(dropout_rate)(x)
+
+        x = Bidirectional(
+            LSTM(lstm_units // 2, return_sequences=True)
+        )(x)
+        x = LayerNormalization()(x)
+
+        x = GlobalAveragePooling1D()(x)
+
+        x = Dense(128, activation="relu")(x)
+        x = Dropout(dropout_rate)(x)
+
+        outputs = Dense(self.num_classes, activation="softmax")(x)
+
+        self.model = Model(inputs, outputs)
+
+        print("Model built successfully.")
+        self.model.summary()
+
     def compile_model(
         self,
         optimizer: Optimizer = None,
@@ -109,9 +151,20 @@ class ModelTrainer:
             raise RuntimeError("Model not built. Call build_model() first.")
 
         if optimizer is None:
-            optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['learning_rate'])
+            # working test 1
+            #optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['learning_rate'])
+            # chatgpt test
+            optimizer = tf.keras.optimizers.AdamW(
+                learning_rate=self.config['learning_rate'],
+                weight_decay=1e-4
+            )
+
         if loss is None:
-            loss = tf.keras.losses.CategoricalCrossentropy()
+            # working test 1
+            #loss = tf.keras.losses.CategoricalCrossentropy()
+            # chatgpt test
+            loss = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05)
+
         if metrics is None:
             metrics = ['accuracy']
 

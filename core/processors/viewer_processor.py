@@ -78,6 +78,8 @@ class ViewerProcessor(FrameProcessor):
             self.records_by_label[label] = records
             self.labels.append(label)
 
+        self.labels.sort(key=lambda label: (len(label), label.lower()))
+
 
     def delete_current_record(self):
         label = self._current_label()
@@ -142,6 +144,18 @@ class ViewerProcessor(FrameProcessor):
     # ---------------------------------------
     # NAVIGATION
     # ---------------------------------------
+
+    def go_to_label(self, label: str):
+        if label not in self.labels:
+            return
+
+        self.current_label_idx = self.labels.index(label)
+        self.current_record_idx = 0
+        self.current_frame_idx = 0
+        self.is_playing = True
+
+        print(f"Label: {self._current_label()}")
+        self._init_display_reference()
 
     def next_label(self):
         self.current_label_idx = (self.current_label_idx + 1) % len(self.labels)
@@ -410,10 +424,6 @@ if __name__ == "__main__":
         alignment="right",
         width=70
     )
-
-    window.show()
-    sys.exit(app.exec())
-
 
     window.show()
     sys.exit(app.exec())
