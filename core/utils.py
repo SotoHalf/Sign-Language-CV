@@ -7,74 +7,55 @@ import hashlib
 from dotenv import load_dotenv
 from pathlib import Path
 
+
 def generate_unique_id() -> str:
     """
-    Generate a unique ID based on machine
+    Generate a unique identifier combining machine fingerprint, nanosecond
+    timestamp and random hex.
+
+    :return: String in the format ``<machine_hash>_<timestamp_ns>_<random>``.
+    :rtype: str
     """
+    hostname: str = socket.gethostname()
+    machine_hash: str = hashlib.md5(hostname.encode()).hexdigest()[:6]
+    timestamp: int = time.time_ns()
+    random_part: str = uuid.uuid4().hex[:6]
+    return f"{machine_hash}_{timestamp}_{random_part}"
 
-    hostname = socket.gethostname()
-    machine_hash = hashlib.md5(hostname.encode()).hexdigest()[:6]
-    timestamp = time.time_ns()
-    random_part = uuid.uuid4().hex[:6]
-
-    return f"{machine_hash}_{timestamp}_{random_part}" 
 
 class AppPaths:
+    """
+    Centralizes project-root path resolution.
+
+    Works both in normal Python execution and when the project is packaged
+    with PyInstaller (``sys.frozen`` is set in that case).
+    """
+
+    # When frozen by PyInstaller the executable sits at the project root;
+    # in normal execution we resolve two levels up from this file.
     if getattr(sys, "frozen", False):
-        ROOT = Path(sys.executable).parent
-        #ROOT = Path(sys._MEIPASS)
+        ROOT: Path = Path(sys.executable).parent
     else:
-        ROOT = Path(__file__).resolve().parents[1]
+        ROOT: Path = Path(__file__).resolve().parents[1]
 
     @classmethod
-    def path(cls, *parts):
+    def path(cls, *parts: str) -> str:
+        """
+        Return an absolute path by joining the project root with the given parts.
+
+        :param parts: Path components to join (e.g. ``"data"``, ``"processed"``).
+        :type parts: str
+        :return: Absolute path string.
+        :rtype: str
+        """
         return str(cls.ROOT.joinpath(*parts))
 
     @classmethod
-    def load_env(cls):
-        env = cls.path(".env")
+    def load_env(cls) -> None:
+        """
+        Load environment variables from the ``.env`` file at the project root.
+        Does nothing if the file does not exist.
+        """
+        env: str = cls.path(".env")
         if Path(env).exists():
             load_dotenv(env)
-
-"""
-def get_project_root():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(current_dir, ".."))
-
-    return project_root
-
-def get_project_root() -> None:
-    '''
-    Returns the absolute path to the project's root
-    Works both in normal execution and when packaged with PyInstaller
-    '''
-    if getattr(sys, 'frozen', False):
-        # running as a PyInstaller, use the temp folder
-        # NOT TESTED
-        base_path = sys._MEIPASS
-    else:
-        # normal execution, use the directory of this file
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-    if not base_path:
-        return None
-    
-    return os.path.abspath(os.path.join(base_path, ".."))
-
-def load_env(dotenv_filename: str = ".env") -> None:
-    '''
-    Load environment variables from a .env file.
-    Works both in normal execution and in PyInstaller.
-
-    :param dotenv_filename: Name of the .env file (default: ".env")
-    '''
-
-    project_root = get_project_root()
-    if project_root:
-        dotenv_path = os.path.join(project_root, dotenv_filename)
-
-        # Load the .env if it exists
-        if os.path.exists(dotenv_path):
-            load_dotenv(dotenv_path)
-
-"""

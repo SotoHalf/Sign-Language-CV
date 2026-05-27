@@ -1,294 +1,239 @@
 import os
-import sys
 from core.utils import AppPaths
 from collections import deque
+from typing import Optional
 import numpy as np
 import pandas as pd
 
 AppPaths.load_env()
 
+
 class LandmarkHandler:
-
     """
-    Handles a temporal sequence of hand landmarks frames, normalizes them,
-    and prepares them for ML model input.
+    Manages a temporal ring-buffer of hand landmark frames, normalizes them,
+    and prepares the resulting sequence as input for the LSTM model.
+
+    Each frame is a flattened array of 21 landmarks × 3 coordinates = 63 values.
+    After preprocessing, delta features are appended, producing 126 values per frame.
     """
 
-    LANDMARK_WRIST = int(os.getenv("HAND_LANDMARK_WRIST", 0))
-    LANDMARK_MIDDLE_FINGER = int(os.getenv("HAND_LANDMARK_MIDDLE_FINGER", 12))
-    LANDMARK_THUMBCMC = int(os.getenv("HAND_LANDMARK_THUMBCMC", 1))
-    LANDMARK_PINCKYMCP = int(os.getenv("HAND_LANDMARK_PINCKYMCP", 17))
-    TOTAL_LANDMARKS = int(os.getenv("HAND_TOTAL_LANDMARKS", 21))
+    # Landmark indices as defined by MediaPipe, configurable via .env
+    LANDMARK_WRIST: int        = int(os.getenv("HAND_LANDMARK_WRIST", 0))
+    LANDMARK_MIDDLE_FINGER: int = int(os.getenv("HAND_LANDMARK_MIDDLE_FINGER", 12))
+    LANDMARK_THUMBCMC: int     = int(os.getenv("HAND_LANDMARK_THUMBCMC", 1))
+    LANDMARK_PINCKYMCP: int    = int(os.getenv("HAND_LANDMARK_PINCKYMCP", 17))
+    TOTAL_LANDMARKS: int       = int(os.getenv("HAND_TOTAL_LANDMARKS", 21))
 
-    def __init__(self, n_frames: int):
+    def __init__(self, n_frames: int) -> None:
         """
-        Creates an internal buffer to handle landmarks up to n_frames then it's ready to be
-        processed by the tensor models
+        Create an internal ring-buffer of size ``n_frames``.
 
-        For static images frames it will be expected 1, for video depends on the sequence
-        
-        :param n_frames: Number of frames, buffer len
+        When the buffer is full, the handler is ready to produce model input.
+        For static gestures use ``n_frames=1``; for dynamic sequences use
+        ``FPS × duration_seconds``.
+
+        :param n_frames: Number of frames the buffer can hold.
         :type n_frames: int
-
         """
-        self.buffer = deque(maxlen = n_frames)
+        self.buffer: deque = deque(maxlen=n_frames)
 
     def add_frame(self, landmarks: np.ndarray) -> None:
         """
-        Add a single frame of landmarks to the buffer.
+        Flatten and append a single frame of landmarks to the buffer.
 
-        :param landmarks: np.ndarray of shape (21,3)
-
+        :param landmarks: Array of shape ``(21, 3)`` with (x, y, z) per landmark.
+        :type landmarks: np.ndarray
         """
         self.buffer.append(landmarks.flatten())
 
     def ready(self) -> bool:
         """
-        Check if the buffer has reached the configured number of frames
+        Return ``True`` when the buffer has reached its configured capacity.
 
+        :return: Whether the buffer is full.
+        :rtype: bool
         """
         return len(self.buffer) == self.buffer.maxlen
-    
-    def clear(self) ->  None:
-        """
-        Clear all frames from the buffer.
 
-        """
+    def clear(self) -> None:
+        """Remove all frames from the buffer."""
         self.buffer.clear()
-    
+
     def export(self) -> np.ndarray:
         """
-        Export all the values raw from the buffer
-        
-        :return: Multidimensional array with shape (n_frames, 63)
-        :rtype: ndarray[_AnyShape, dtype[Any]]
+        Export the raw buffer contents as a NumPy array.
 
+        :return: Array of shape ``(n_frames, 63)``.
+        :rtype: np.ndarray
         """
-        landmark_export: np.ndarray = np.array(self.buffer)
-        return landmark_export
-    
+        return np.array(self.buffer)
 
-    # ---------------------------------------
-    # (Normalization - Transformation - Preprocess) Functions
-    # ---------------------------------------
+    # --------------------------------------------------
+    # Normalization / Transformation / Preprocessing
+    # --------------------------------------------------
 
     @staticmethod
-    def get_landmark_cols(ndarray: np.ndarray, index: int, size: int = 3):
-        # offset for (x,y,z)
-        cols = index * size + np.arange(size) 
+    def get_landmark_cols(ndarray: np.ndarray, index: int, size: int = 3) -> np.ndarray:
+        """
+        Extract the (x, y, z) columns for the landmark at the given index.
 
-        # for all rows, only middle finger cols
+        :param ndarray: Flattened landmark array of shape ``(n_frames, 63)``.
+        :type ndarray: np.ndarray
+        :param index: MediaPipe landmark index (0–20).
+        :type index: int
+        :param size: Number of coordinate components per landmark (default 3 for x, y, z).
+        :type size: int
+        :return: Array of shape ``(n_frames, size)``.
+        :rtype: np.ndarray
+        """
+        cols = index * size + np.arange(size)
         return ndarray[:, cols]
-    
-    @classmethod
-    def tensor_landmarks(cls):
-        #I don't know if I will be needing that
-        pass
-    
-    """
+
     @classmethod
     def _preprocess_scale(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
-        landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
-        middle_finger = cls.get_landmark_cols(landmarks_frame_data, cls.LANDMARK_MIDDLE_FINGER)
-        # Después de centrar, la muñeca es (0,0,0), así que la distancia es la norma del dedo medio
-        scale = np.linalg.norm(middle_finger, axis=1)
-        scale[scale == 0] = 1e-6
-        landmarks_frame_data = landmarks_frame_data / scale[:, np.newaxis]
-        return landmarks_frame_data
-
-    """
-    @classmethod
-    def _preprocess_scale(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
-        '''
-        Apply scale normalization by dividing all landmarks by the
-        wrist-to-middle-finger Euclidean distance for each frame.
-        '''
-
-        landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
-        
         """
-        # columns for middle finger
-        # get the landmark expected by index
-        middle_finger = LandmarkHandler.get_landmark_cols(
-            landmarks_frame_data,  
-            cls.LANDMARK_MIDDLE_FINGER
-        )
+        Scale normalization: divide all coordinates by the mean Euclidean distance
+        between thumb-CMC and pinky-MCP across all frames.
 
-        # columns for wrist
-        wrist_position = LandmarkHandler.get_landmark_cols(
-            landmarks_frame_data,  
-            cls.LANDMARK_WRIST
-        )
-    
-        # euclidean distance for each row (axis = 1)
-        #scale = np.linalg.norm(middle_finger - wrist_position, axis=1)
-        scale = np.mean(
-            np.linalg.norm(middle_finger - wrist_position, axis=1)
-        )
+        This makes the hand size invariant to camera distance.
+
+        :param landmarks_frame_data: Array of shape ``(n_frames, 63)``.
+        :type landmarks_frame_data: np.ndarray
+        :return: Scaled array of the same shape.
+        :rtype: np.ndarray
         """
+        landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
 
-        # columns for middle finger
-        # get the landmark expected by index
-        thumb_cmc = LandmarkHandler.get_landmark_cols(
-            landmarks_frame_data,  
-            cls.LANDMARK_THUMBCMC
-        )
+        thumb_cmc = cls.get_landmark_cols(landmarks_frame_data, cls.LANDMARK_THUMBCMC)
+        pinky_mcp = cls.get_landmark_cols(landmarks_frame_data, cls.LANDMARK_PINCKYMCP)
 
-        # columns for wrist
-        pinky_mcp = LandmarkHandler.get_landmark_cols(
-            landmarks_frame_data,  
-            cls.LANDMARK_PINCKYMCP
-        )
-    
-        # euclidean distance for each row (axis = 1)
-        #scale = np.linalg.norm(middle_finger - wrist_position, axis=1)
-        scale = np.mean(
-            np.linalg.norm(pinky_mcp - thumb_cmc, axis=1)
-        )
-
+        # Mean distance across frames gives a stable scale reference
+        scale: float = np.mean(np.linalg.norm(pinky_mcp - thumb_cmc, axis=1))
         if scale == 0:
-            scale = 1e-6
+            scale = 1e-6  # avoid division by zero on empty/degenerate hands
 
-        landmarks_frame_data = landmarks_frame_data / scale
-
-        return landmarks_frame_data
+        return landmarks_frame_data / scale
 
     @classmethod
     def _preprocess_position(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
+        """
+        Position normalization: translate all landmarks so that the wrist at
+        frame 0 becomes the origin (0, 0, 0).
+
+        Anchoring to frame 0 instead of each individual frame preserves
+        relative hand movement across the sequence.
+
+        :param landmarks_frame_data: Array of shape ``(n_frames, 63)``.
+        :type landmarks_frame_data: np.ndarray
+        :return: Translated array of the same shape.
+        :rtype: np.ndarray
+        """
         landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
 
-        wrist_positions = LandmarkHandler.get_landmark_cols(
-            landmarks_frame_data,
-            cls.LANDMARK_WRIST
-        )
+        wrist_positions = cls.get_landmark_cols(landmarks_frame_data, cls.LANDMARK_WRIST)
 
         reshaped = landmarks_frame_data.reshape(
-            landmarks_frame_data.shape[0],
-            cls.TOTAL_LANDMARKS,
-            3
+            landmarks_frame_data.shape[0], cls.TOTAL_LANDMARKS, 3
         )
 
-        wrist_frame0 = wrist_positions[0] # para restar usa solo el frame 0
-
-        #reshaped -= wrist_positions[:, None, :] # para restar usa cada frame          
-        reshaped -= wrist_frame0[None, None, :]
+        # Subtract only the first frame's wrist so motion across frames is retained
+        reshaped -= wrist_positions[0][None, None, :]
 
         return reshaped.reshape(landmarks_frame_data.shape)
 
     @classmethod
-    def _preprocess_delta(cls, landmarks_frame_data: np.ndarray, cols: np.ndarray = None) -> np.ndarray:
+    def _preprocess_delta(
+        cls,
+        landmarks_frame_data: np.ndarray,
+        cols: Optional[np.ndarray] = None
+    ) -> np.ndarray:
         """
-        Compute delta between frames.
-        If cols is None, compute delta for all landmarks.
-        If cols is provided, compute delta only for these columns.
-        Concatenate delta at the end of the array.
+        Compute frame-to-frame velocity (delta) for all or selected columns.
+
+        The first row is always zero (no previous frame to subtract from).
+
+        :param landmarks_frame_data: Array of shape ``(n_frames, n_cols)``.
+        :type landmarks_frame_data: np.ndarray
+        :param cols: Column indices to compute delta for. If ``None``, all columns are used.
+        :type cols: np.ndarray, optional
+        :return: Delta array with the same shape as the input (or selected subset).
+        :rtype: np.ndarray
         """
         landmarks_frame_data = np.array(landmarks_frame_data, copy=True)
-        
-        if cols is None:
-            # all columns
-            data_to_delta = landmarks_frame_data
-        else:
-            data_to_delta = landmarks_frame_data[:, cols]
+        data_to_delta = landmarks_frame_data if cols is None else landmarks_frame_data[:, cols]
 
-        # compute delta
         delta = np.zeros_like(data_to_delta)
         delta[1:] = data_to_delta[1:] - data_to_delta[:-1]
 
         return delta
-    
-    # NOT USED DEPRECATED
-    @classmethod
-    def _preprocess_delta_wrist(cls, landmarks_frame_data: np.ndarray) -> np.ndarray:
-        """
-        Compute delta only for the wrist and add at the end.
-        """
-        # columns for wrist
-        wrist_cols = cls.LANDMARK_WRIST * 3 + np.arange(3) 
-        
-        # delegate to _preprocess_delta
-        landmarks_frame_data = cls._preprocess_delta(landmarks_frame_data, cols=wrist_cols)
-        
-        return landmarks_frame_data
 
     @classmethod
-    def preprocess_landmarks(cls, landmarks_frame_data: np.ndarray, n_frames: int = None) -> np.ndarray:
-        '''
+    def preprocess_landmarks(
+        cls,
+        landmarks_frame_data: np.ndarray,
+        n_frames: Optional[int] = None
+    ) -> np.ndarray:
+        """
+        Full preprocessing pipeline applied before feeding data to the model:
 
-        Normalize and Transform values:
-            - Position (using wrist as the origin)
-            - Scale (using distance from the tip middle finger and the wrist)
-            - Add delta for the wirst without position normalize
-            
-            - Drop wrist values
-            - Add delta (change between frames) from fingers
+        1. Position normalization (wrist at frame 0 as origin).
+        2. Scale normalization (thumb-CMC ↔ pinky-MCP distance).
+        3. Append per-frame velocity (delta) as extra features.
 
-        21:
-            Depends on HAND_TOTAL_LANDMARKS
+        Output shape is ``(n_frames, 126)``:
+        63 landmark coordinates + 63 delta coordinates.
 
-        126:
-            - 21 landmarks * 3 (x,y,z) = 63
-            - 63 * 2 (delta values subtracting wrist) = 126
-            - 63 (landmarks) + 63 (delta)
-        
-        :param landmark_export: shape (n_frames, 63)
-        :type landmark_export: np.ndarray[_AnyShape, dtype[Any]]
-        :return: Multidimensional array with shape (n_frames, 126)
-        :rtype: ndarray[_AnyShape, dtype[Any]]
-        '''
+        :param landmarks_frame_data: Raw buffer export of shape ``(n_frames, 63)``.
+        :type landmarks_frame_data: np.ndarray
+        :param n_frames: If the sequence is shorter than this value, the last frame
+            is repeated to pad it to the required length.
+        :type n_frames: int, optional
+        :return: Processed array of shape ``(n_frames, 126)``.
+        :rtype: np.ndarray
+        """
+        result = np.array(landmarks_frame_data, copy=True)
+        result = cls._preprocess_position(result)
+        result = cls._preprocess_scale(result)
 
-        landmarks_frame_data_norm = np.array(landmarks_frame_data, copy=True)
+        delta = cls._preprocess_delta(result)
+        result = np.hstack([result, delta])
 
-        landmarks_frame_data_norm = cls._preprocess_position(landmarks_frame_data_norm)
-        landmarks_frame_data_norm = cls._preprocess_scale(landmarks_frame_data_norm)
-        delta_all = cls._preprocess_delta(landmarks_frame_data_norm)
+        # Pad with the last frame if the sequence is shorter than expected
+        if n_frames and result.shape[0] < n_frames:
+            last_frame = result[-1] if result.shape[0] > 0 else np.zeros(result.shape[1], dtype=np.float32)
+            padding = np.tile(last_frame, (n_frames - result.shape[0], 1))
+            result = np.vstack([result, padding])
 
-        # add the delta data
-        landmarks_frame_data_norm = np.hstack([landmarks_frame_data_norm, delta_all])
-
-        # test - fill in case of missing n_frames
-        if n_frames:
-            current_frames = landmarks_frame_data_norm.shape[0]
-            if current_frames < n_frames:
-                last_frame = landmarks_frame_data_norm[-1] if current_frames > 0 else np.zeros(landmarks_frame_data_norm.shape[1], dtype=np.float32)
-                repeat = n_frames - current_frames
-                landmarks_frame_data_norm = np.vstack([landmarks_frame_data_norm, np.tile(last_frame, (repeat, 1))])
-       
-        return landmarks_frame_data_norm
-    
+        return result
 
     @classmethod
     def to_dataframe(cls, landmarks_frame_data: np.ndarray) -> pd.DataFrame:
         """
-        Convert a processed landmarks array into a pandas DataFrame with
-        consistent column names: lmX_xyz, dX_xyz, and dw_xyz (if present).
+        Convert a landmark array to a DataFrame with descriptive column names.
 
-        If the array has only 63 columns, only the lm columns are created.
+        - 63-column arrays  → ``lmX_x``, ``lmX_y``, ``lmX_z`` (raw landmarks).
+        - 126-column arrays → above + ``dX_x``, ``dX_y``, ``dX_z`` (delta values).
 
-        :param landmarks_frame_data: np.ndarray of shape (n_frames, n_features)
-        :return: pd.DataFrame with appropriately named columns
+        :param landmarks_frame_data: Array of shape ``(n_frames, 63)`` or ``(n_frames, 126)``.
+        :type landmarks_frame_data: np.ndarray
+        :return: DataFrame with named columns.
+        :rtype: pd.DataFrame
+        :raises ValueError: If the number of columns does not match 63 or 126.
         """
         _, n_cols = landmarks_frame_data.shape
-        n_coords = 3  # x, y, z
 
-        # If it's only the original landmarks (63 cols), create only lm columns
-        if n_cols == cls.TOTAL_LANDMARKS * n_coords:
-            lm_cols = [f"lm{i}_{axis}" for i in range(cls.TOTAL_LANDMARKS) for axis in ['x','y','z']]
+        lm_cols = [f"lm{i}_{ax}" for i in range(cls.TOTAL_LANDMARKS) for ax in ('x', 'y', 'z')]
+
+        if n_cols == cls.TOTAL_LANDMARKS * 3:
             column_names = lm_cols
         else:
-            # Landmark columns
-            lm_cols = [f"lm{i}_{axis}" for i in range(cls.TOTAL_LANDMARKS) for axis in ['x','y','z']]
-            # Delta columns
-            delta_cols = [f"d{i}_{axis}" for i in range(cls.TOTAL_LANDMARKS) for axis in ['x','y','z']]
-        
+            delta_cols = [f"d{i}_{ax}" for i in range(cls.TOTAL_LANDMARKS) for ax in ('x', 'y', 'z')]
             column_names = lm_cols + delta_cols
 
         if n_cols != len(column_names):
             raise ValueError(f"Shape mismatch: array has {n_cols} columns, expected {len(column_names)}")
 
-        df_landmarks = pd.DataFrame(landmarks_frame_data, columns=column_names)
-        return df_landmarks
-    
+        return pd.DataFrame(landmarks_frame_data, columns=column_names)
 
 
 if __name__ == "__main__":
@@ -345,35 +290,12 @@ if __name__ == "__main__":
     handler.add_frame(frame_0)
     handler.add_frame(frame_1)
 
-    print(f"Frame 1 added")
-    print(f"Frame 2 added")
-
-    """
-    #random values
-    for i in range(2):
-        # shape (21, 3)
-        simulated_landmarks = np.random.rand(21, 3).astype(np.float32)
-        handler.add_frame(simulated_landmarks)
-        print(f"Frame {i} added")
-    """
-
     if handler.ready():
-
-        # Export
         raw_landmarks = handler.export()
         print("Landmarks raw shape:", raw_landmarks.shape)
 
         processed_landmarks = handler.preprocess_landmarks(raw_landmarks)
         print("Landmarks processed shape:", processed_landmarks.shape)
-
         print(processed_landmarks)
- 
+
         handler.clear()
-
-        #df_landmarks = handler.to_dataframe(processed_landmarks)
-
-        #df_landmarks.to_csv("processed_landmarks.csv", index=False)
-        
-
-
-

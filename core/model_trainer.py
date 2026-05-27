@@ -1,108 +1,80 @@
 import os
 import numpy as np
-import pandas as pd
-from typing import Tuple, List, Dict, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import tensorflow as tf
 from sklearn.preprocessing import LabelEncoder
-from tensorflow.keras.models import Sequential, Model
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import (
+    Input, Conv1D, BatchNormalization, Bidirectional,
+    LSTM, LayerNormalization, Dropout, GlobalAveragePooling1D, Dense
+)
 from tensorflow.keras.optimizers import Optimizer
 from tensorflow.keras.losses import Loss
 from tensorflow.keras.callbacks import Callback, EarlyStopping, ModelCheckpoint
-from tensorflow.keras import backend as K
 
-# test chatgpt
-from tensorflow.keras.layers import (
-    Input, LSTM, Dense, Dropout, Bidirectional,
-    LayerNormalization, GlobalAveragePooling1D,
-    Conv1D, BatchNormalization
-)
-from tensorflow.keras.models import Model
 
 class ModelTrainer:
     """
-    Responsible for building, training and evaluating a gesture classification model
-    using TensorFlow/Keras. Relies on data provided by DataLoader.
+    Builds, compiles, trains and evaluates the gesture classification model.
+
+    Architecture: Conv1D → BiLSTM × 2 → GlobalAvgPool → Dense.
+    Relies on data splits produced by :class:`~core.data_loader.DataLoader`.
     """
 
     def __init__(
         self,
         input_shape: Tuple[int, int],
         num_classes: int,
-        config: Dict[str, Union[float, int, str]] = None,
+        config: Optional[Dict[str, Union[float, int, str]]] = None,
         model_path: str = "models/sign_lstm.h5"
-    ):
+    ) -> None:
         """
-        Initialize the trainer.
+        Initialize the trainer with architecture and training hyperparameters.
 
-        :param input_shape: Tuple (sequence_length, n_features).
-        :param num_classes: Number of output classes.
-        :param config: Dictionary containing hyperparameters (e.g., learning_rate,
-                       lstm_units, dropout_rate). If None, defaults are used.
-        :param model_path: Path where the trained model will be saved.
+        :param input_shape: ``(sequence_length, n_features)`` as expected by the model input.
+        :type input_shape: tuple[int, int]
+        :param num_classes: Number of gesture classes for the output softmax layer.
+        :type num_classes: int
+        :param config: Dictionary overriding any default hyperparameters.
+            Valid keys: ``lstm_units``, ``dropout_rate``, ``learning_rate``,
+            ``epochs``, ``batch_size``, ``patience``.
+        :type config: dict, optional
+        :param model_path: Destination path for saving the best checkpoint during training.
+        :type model_path: str
         """
-        self.input_shape = input_shape
-        self.num_classes = num_classes
-        self.model_path = model_path
+        self.input_shape: Tuple[int, int] = input_shape
+        self.num_classes: int = num_classes
+        self.model_path: str = model_path
 
-        # Default configuration
-        self.config = {
+        self.config: Dict[str, Union[float, int]] = {
             'lstm_units': 128,
             'dropout_rate': 0.4,
             'learning_rate': 1e-3,
             'epochs': 50,
             'batch_size': 16,
-            'patience': 10
+            'patience': 10,
         }
         if config is not None:
             self.config.update(config)
 
-        self.model: Model = None
-        self.history: tf.keras.callbacks.History = None
+        self.model: Optional[Model] = None
+        self.history: Optional[tf.keras.callbacks.History] = None
 
-    def build_model_test1_working(self) -> None:
-        """
-        Build the Keras Sequential model with LSTM layers.
-        The architecture:
-            - LSTM(128, return_sequences=True)
-            - Dropout(0.4)
-            - LSTM(64)
-            - Dropout(0.4)
-            - Dense(num_classes, activation='softmax')
-        """
-
-        """
-        self.model = Sequential([
-            LSTM(
-                self.config['lstm_units'],
-                return_sequences=True,
-                input_shape=self.input_shape
-            ),
-            Dropout(self.config['dropout_rate']),
-            LSTM(self.config['lstm_units'] // 2),  # 64 if default 128
-            Dropout(self.config['dropout_rate']),
-            Dense(self.num_classes, activation='softmax')
-        ])
-        """
-        lstm_units = self.config['lstm_units']
-        bidir_units = lstm_units // 2   # 64
-        self.model = Sequential([
-            Bidirectional(LSTM(bidir_units, return_sequences=True), input_shape=self.input_shape),
-            Dropout(0.4),
-            LSTM(lstm_units // 2),  # 64, ahora entrada 128
-            Dropout(0.4),
-            Dense(self.num_classes, activation='softmax')
-        ])
-
-
-        print("Model built successfully.")
-        self.model.summary()
-
-    #test chatgpt
     def build_model(self) -> None:
-        lstm_units = self.config['lstm_units']
-        dropout_rate = self.config['dropout_rate']
+        """
+        Construct the Keras model graph.
+
+        Architecture:
+            Conv1D(64) → BatchNorm → Dropout(0.2) →
+            BiLSTM(lstm_units) → LayerNorm → Dropout →
+            BiLSTM(lstm_units//2) → LayerNorm →
+            GlobalAveragePooling1D →
+            Dense(128, relu) → Dropout →
+            Dense(num_classes, softmax)
+        """
+        lstm_units: int = self.config['lstm_units']
+        dropout_rate: float = self.config['dropout_rate']
 
         inputs = Input(shape=self.input_shape)
 
@@ -110,19 +82,14 @@ class ModelTrainer:
         x = BatchNormalization()(x)
         x = Dropout(0.2)(x)
 
-        x = Bidirectional(
-            LSTM(lstm_units, return_sequences=True)
-        )(x)
+        x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
         x = LayerNormalization()(x)
         x = Dropout(dropout_rate)(x)
 
-        x = Bidirectional(
-            LSTM(lstm_units // 2, return_sequences=True)
-        )(x)
+        x = Bidirectional(LSTM(lstm_units // 2, return_sequences=True))(x)
         x = LayerNormalization()(x)
 
         x = GlobalAveragePooling1D()(x)
-
         x = Dense(128, activation="relu")(x)
         x = Dropout(dropout_rate)(x)
 
@@ -135,36 +102,36 @@ class ModelTrainer:
 
     def compile_model(
         self,
-        optimizer: Optimizer = None,
-        loss: Loss = None,
-        metrics: List[str] = None
+        optimizer: Optional[Optimizer] = None,
+        loss: Optional[Loss] = None,
+        metrics: Optional[List[str]] = None
     ) -> None:
         """
-        Compile the model with the given optimizer, loss, and metrics.
-        If not provided, defaults are Adam, categorical_crossentropy, and ['accuracy'].
+        Compile the model with optimizer, loss and evaluation metrics.
 
-        :param optimizer: Keras optimizer instance. If None, uses Adam with learning_rate from config.
-        :param loss: Keras loss instance. If None, uses CategoricalCrossentropy.
-        :param metrics: List of metric names. If None, uses ['accuracy'].
+        Defaults: AdamW (weight_decay=1e-4) + CategoricalCrossentropy
+        (label_smoothing=0.05) + accuracy.
+
+        :param optimizer: Keras optimizer instance. Defaults to AdamW with
+            the ``learning_rate`` from the config.
+        :type optimizer: Optimizer, optional
+        :param loss: Keras loss instance. Defaults to CategoricalCrossentropy
+            with label smoothing.
+        :type loss: Loss, optional
+        :param metrics: List of metric names. Defaults to ``['accuracy']``.
+        :type metrics: list[str], optional
+        :raises RuntimeError: If :meth:`build_model` has not been called yet.
         """
         if self.model is None:
             raise RuntimeError("Model not built. Call build_model() first.")
 
         if optimizer is None:
-            # working test 1
-            #optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['learning_rate'])
-            # chatgpt test
             optimizer = tf.keras.optimizers.AdamW(
                 learning_rate=self.config['learning_rate'],
                 weight_decay=1e-4
             )
-
         if loss is None:
-            # working test 1
-            #loss = tf.keras.losses.CategoricalCrossentropy()
-            # chatgpt test
             loss = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05)
-
         if metrics is None:
             metrics = ['accuracy']
 
@@ -177,20 +144,29 @@ class ModelTrainer:
         y_train: np.ndarray,
         X_val: np.ndarray,
         y_val: np.ndarray,
-        epochs: int = None,
-        batch_size: int = None,
-        callbacks: List[Callback] = None
+        epochs: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        callbacks: Optional[List[Callback]] = None
     ) -> None:
         """
-        Train the model.
+        Train the model on the provided data splits.
 
-        :param X_train: Training features.
-        :param y_train: Training labels (one-hot encoded).
-        :param X_val: Validation features.
-        :param y_val: Validation labels (one-hot encoded).
-        :param epochs: Number of epochs. If None, uses value from config.
-        :param batch_size: Batch size. If None, uses value from config.
-        :param callbacks: List of Keras callbacks. If None, default EarlyStopping and ModelCheckpoint are used.
+        :param X_train: Training features of shape ``(n_samples, seq_len, n_features)``.
+        :type X_train: np.ndarray
+        :param y_train: One-hot encoded training labels of shape ``(n_samples, n_classes)``.
+        :type y_train: np.ndarray
+        :param X_val: Validation features, same shape convention as ``X_train``.
+        :type X_val: np.ndarray
+        :param y_val: One-hot encoded validation labels.
+        :type y_val: np.ndarray
+        :param epochs: Number of training epochs. Overrides config if provided.
+        :type epochs: int, optional
+        :param batch_size: Mini-batch size. Overrides config if provided.
+        :type batch_size: int, optional
+        :param callbacks: Keras callbacks list. Defaults to EarlyStopping +
+            ModelCheckpoint monitoring ``val_loss``.
+        :type callbacks: list[Callback], optional
+        :raises RuntimeError: If :meth:`build_model` has not been called yet.
         """
         if self.model is None:
             raise RuntimeError("Model not built. Call build_model() first.")
@@ -198,15 +174,14 @@ class ModelTrainer:
         epochs = epochs or self.config['epochs']
         batch_size = batch_size or self.config['batch_size']
 
-        # Default callbacks if none provided
         if callbacks is None:
             callbacks = [
-                EarlyStopping( # avoid overfitting
+                EarlyStopping(
                     monitor='val_loss',
                     patience=self.config['patience'],
                     restore_best_weights=True
                 ),
-                ModelCheckpoint( # save best model
+                ModelCheckpoint(
                     self.model_path,
                     monitor='val_loss',
                     save_best_only=True
@@ -226,34 +201,41 @@ class ModelTrainer:
 
     def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> Dict[str, float]:
         """
-        Evaluate the model on the test set.
+        Evaluate the trained model on the test set.
 
-        :param X_test: Test features.
-        :param y_test: Test labels (one-hot encoded).
-        :return: Dictionary of metric names and values (e.g., {'loss': ..., 'accuracy': ...}).
+        :param X_test: Test features of shape ``(n_samples, seq_len, n_features)``.
+        :type X_test: np.ndarray
+        :param y_test: One-hot encoded test labels.
+        :type y_test: np.ndarray
+        :return: Dictionary mapping metric names to their values (e.g. ``{'loss': 0.1, 'accuracy': 0.95}``).
+        :rtype: dict[str, float]
+        :raises RuntimeError: If no model has been built or trained.
         """
         if self.model is None:
             raise RuntimeError("Model not built or trained.")
 
         print("Evaluating on test set...")
         results = self.model.evaluate(X_test, y_test, verbose=0)
-        metrics = {name: value for name, value in zip(self.model.metrics_names, results)}
+        metrics: Dict[str, float] = dict(zip(self.model.metrics_names, results))
         print(f"Test metrics: {metrics}")
         return metrics
 
-    def save_model(self, model_path: str, encoder: LabelEncoder = None) -> None:
+    def save_model(self, model_path: str, encoder: Optional[LabelEncoder] = None) -> None:
         """
-        Save the trained model to disk. Optionally also save the label encoder classes.
+        Save the trained model to disk, and optionally the label encoder classes.
 
-        :param model_path: Path where the model will be saved (HDF5 format).
-        :param encoder: Optional fitted LabelEncoder. If provided, its classes are saved alongside.
+        The encoder classes are saved as ``<model_stem>_encoder.npy`` alongside the model.
+
+        :param model_path: Destination path (``.keras`` or ``.h5``).
+        :type model_path: str
+        :param encoder: Fitted ``LabelEncoder`` whose classes will be persisted.
+        :type encoder: LabelEncoder, optional
+        :raises RuntimeError: If no model has been trained yet.
         """
         if self.model is None:
             raise RuntimeError("No model to save.")
 
-        # Ensure directory exists
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
-
         self.model.save(model_path)
         print(f"Model saved to: {model_path}")
 
@@ -270,21 +252,18 @@ if __name__ == "__main__":
 
     AppPaths.load_env()
 
-    DATA_PATH = AppPaths.path(os.getenv("DATA_PATH", "data/processed"))
-    MODEL_OUTPUT = AppPaths.path(os.getenv("SIGN_TRANSLATE_MODEL", "models/sign_lstm.keras"))
+    DATA_PATH     = AppPaths.path(os.getenv("DATA_PATH", "data/processed"))
+    MODEL_OUTPUT  = AppPaths.path(os.getenv("SIGN_TRANSLATE_MODEL", "models/sign_lstm.keras"))
     ENCODER_OUTPUT = AppPaths.path(os.getenv("LABEL_ENCODER_FILE", "models/sign_lstm_encoder.npy"))
 
-    # Load data
     loader = DataLoader(DATA_PATH, test_size=0.15, val_size=0.15, random_state=42)
     X, y = loader.load_data()
     print(f"X shape: {X.shape}, y shape: {y.shape}")
     print(f"Classes: {loader.get_classes()}")
 
-    # Get splits
     X_train, X_val, X_test, y_train, y_val, y_test = loader.get_splits()
     print(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
 
-    # 3. Build and train model
     trainer = ModelTrainer(
         input_shape=(X.shape[1], X.shape[2]),
         num_classes=loader.num_classes,
@@ -295,8 +274,5 @@ if __name__ == "__main__":
     trainer.compile_model()
     trainer.train(X_train, y_train, X_val, y_val)
 
-    # Evaluate
     metrics = trainer.evaluate(X_test, y_test)
-
-    # Save model and encoder
     trainer.save_model(MODEL_OUTPUT, encoder=loader.label_encoder)

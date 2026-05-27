@@ -2,17 +2,28 @@ import os
 import numpy as np
 import pandas as pd
 from glob import glob
-from typing import Tuple, List
+from typing import List, Optional, Tuple
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from tensorflow.keras.utils import to_categorical
 
+
 class DataLoader:
     """
-    Handles loading and preprocessing of the landmark dataset from a folder structure.
-    Each subfolder represents a class label and contains CSV files of sequences.
-    Prepares the data for training (train/val/test split, label encoding).
+    Loads and preprocesses the landmark dataset from a folder structure.
+
+    Each subfolder represents a class label and contains ``.csv`` files,
+    where each file is one recorded gesture sequence.
+
+    Expected layout::
+
+        dataset_path/
+            a/
+                <uid>.csv
+                <uid>.csv
+            b/
+                <uid>.csv
     """
 
     def __init__(
@@ -21,53 +32,49 @@ class DataLoader:
         test_size: float = 0.15,
         val_size: float = 0.15,
         random_state: int = 42
-    ):
+    ) -> None:
         """
-        Initialize the DataLoader.
+        Configure the loader with split ratios.
 
-        :param dataset_path: Path to the root folder containing class subfolders.
-        :param test_size: Proportion of data to use for testing.
-        :param val_size: Proportion of data to use for validation.
-        :param random_state: Seed for reproducible splits.
+        :param dataset_path: Root folder containing one subfolder per class label.
+        :type dataset_path: str
+        :param test_size: Fraction of samples to reserve for the test set.
+        :type test_size: float
+        :param val_size: Fraction of samples to reserve for the validation set.
+        :type val_size: float
+        :param random_state: Random seed for reproducible splits.
+        :type random_state: int
         """
-        self.dataset_path = dataset_path
-        self.test_size = test_size
-        self.val_size = val_size
-        self.random_state = random_state
+        self.dataset_path: str = dataset_path
+        self.test_size: float = test_size
+        self.val_size: float = val_size
+        self.random_state: int = random_state
 
-        # Internal attributes
-        self.label_encoder = LabelEncoder()
-        self.num_classes: int = None
-        self.sequence_length: int = None
-        self.n_features: int = None
-        self.X: np.ndarray = None          # Raw sequences (n_samples, T, n_features)
-        self.y: np.ndarray = None          # Original string labels (n_samples,)
+        self.label_encoder: LabelEncoder = LabelEncoder()
+        self.num_classes: Optional[int] = None
+        self.sequence_length: Optional[int] = None
+        self.n_features: Optional[int] = None
 
-        self._y_encoded: np.ndarray = None # Encoded integer labels
-        self._y_onehot: np.ndarray = None  # One-hot encoded labels
+        self.X: Optional[np.ndarray] = None   # (n_samples, seq_len, n_features)
+        self.y: Optional[np.ndarray] = None   # (n_samples,) string labels
+
+        self._y_encoded: Optional[np.ndarray] = None   # integer class indices
+        self._y_onehot: Optional[np.ndarray] = None    # one-hot encoded labels
 
     def load_data(self) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Load all sequences from the dataset folder.
+        Scan the dataset folder and load all CSV sequences into memory.
 
-        Expects a directory structure:
-            dataset_path/
-                class_1/
-                    seq1.csv
-                    seq2.csv
-                class_2/
-                    ...
+        Each CSV must contain landmark feature columns (and optionally a ``Frame``
+        column which is dropped). All CSVs in the same dataset must have the same
+        number of rows (frames) and columns (features).
 
-        Each CSV file should have a 'Frame' column (which is dropped) and
-        landmark columns (123 features). All sequences must have the same
-        number of time steps (rows).
-
-        :return: Tuple (X, y) where X is a numpy array of shape
-                 (n_samples, sequence_length, n_features) and y is a numpy array
-                 of string labels (n_samples,).
+        :return: Tuple ``(X, y)`` where ``X`` has shape ``(n_samples, seq_len, n_features)``
+            and ``y`` is an array of string class labels with shape ``(n_samples,)``.
+        :rtype: tuple[np.ndarray, np.ndarray]
         """
-        X_list = []
-        y_list = []
+        X_list: List[np.ndarray] = []
+        y_list: List[str] = []
 
         for label in sorted(os.listdir(self.dataset_path)):
             label_path = os.path.join(self.dataset_path, label)
@@ -76,26 +83,18 @@ class DataLoader:
 
             for csv_path in glob(os.path.join(label_path, "*.csv")):
                 df = pd.read_csv(csv_path)
-
-                # drop the Frame column if present
                 if 'Frame' in df.columns:
                     df = df.drop(columns=['Frame'])
 
-                # Convert to float32 numpy array (T, n_features)
-                sequence = df.values.astype(np.float32)
-
-                X_list.append(sequence)
+                X_list.append(df.values.astype(np.float32))
                 y_list.append(label)
 
-        # Stack all sequences
         self.X = np.array(X_list)
         self.y = np.array(y_list)
 
-        # Get infer dimensions
         self.sequence_length = self.X.shape[1]
         self.n_features = self.X.shape[2]
 
-        # Encode labels
         self._y_encoded = self.label_encoder.fit_transform(self.y)
         self._y_onehot = to_categorical(self._y_encoded)
         self.num_classes = self._y_onehot.shape[1]
@@ -107,16 +106,19 @@ class DataLoader:
         np.ndarray, np.ndarray, np.ndarray
     ]:
         """
-        Split the data into training, validation and test sets.
-        Uses stratified split based on the encoded labels.
-        The returned y sets are one-hot encoded.
+        Split the loaded data into training, validation and test sets.
 
-        :return: (X_train, X_val, X_test, y_train, y_val, y_test)
+        The first split is stratified to preserve class distribution.
+        Labels returned are one-hot encoded.
+
+        :return: ``(X_train, X_val, X_test, y_train, y_val, y_test)``
+        :rtype: tuple of np.ndarray
+        :raises RuntimeError: If :meth:`load_data` has not been called yet.
         """
         if self.X is None or self.y is None:
             raise RuntimeError("Data not loaded. Call load_data() first.")
 
-        # First split: training vs (validation + test)
+        # First split: isolate training set, keep (val + test) together
         X_train, X_temp, y_train, y_temp = train_test_split(
             self.X,
             self._y_onehot,
@@ -125,8 +127,8 @@ class DataLoader:
             stratify=self._y_encoded
         )
 
-        # Second split: validation vs test
-        val_ratio = self.val_size / (self.test_size + self.val_size)
+        # Second split: divide the remainder into val and test
+        val_ratio: float = self.val_size / (self.test_size + self.val_size)
         X_val, X_test, y_val, y_test = train_test_split(
             X_temp,
             y_temp,
@@ -138,9 +140,11 @@ class DataLoader:
 
     def get_classes(self) -> List[str]:
         """
-        Get the list of class names as inferred by the LabelEncoder.
+        Return the list of class names as inferred by the label encoder.
 
-        :return: List of class names (strings).
+        :return: Alphabetically sorted list of class label strings.
+        :rtype: list[str]
+        :raises RuntimeError: If :meth:`load_data` has not been called yet.
         """
         if self.label_encoder.classes_.size == 0:
             raise RuntimeError("Encoder not fitted. Call load_data() first.")
@@ -148,9 +152,11 @@ class DataLoader:
 
     def save_encoder(self, encoder_path: str) -> None:
         """
-        Save the fitted label encoder classes to a .npy file.
+        Persist the fitted label encoder classes to a ``.npy`` file.
 
-        :param encoder_path: Path where the encoder classes will be saved.
+        :param encoder_path: Destination file path.
+        :type encoder_path: str
+        :raises RuntimeError: If :meth:`load_data` has not been called yet.
         """
         if self.label_encoder.classes_.size == 0:
             raise RuntimeError("Encoder not fitted. Call load_data() first.")

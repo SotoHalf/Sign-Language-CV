@@ -6,45 +6,60 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from core.utils import AppPaths
 import numpy as np
-from typing import Any, List
-
+from typing import Any, List, Optional
 
 AppPaths.load_env()
 
-# Hand Conections for MediaPipe Hands
-HAND_CONNECTIONS = [
+# 21-point hand skeleton defined as pairs of landmark indices.
+# Order matches MediaPipe's landmark numbering (0 = wrist, 4 = thumb tip, etc.).
+HAND_CONNECTIONS: List[tuple] = [
     (0, 1), (1, 2), (2, 3), (3, 4),        # Thumb
     (0, 5), (5, 6), (6, 7), (7, 8),        # Index
     (0, 9), (9, 10), (10, 11), (11, 12),   # Middle
     (0, 13), (13, 14), (14, 15), (15, 16), # Ring
     (0, 17), (17, 18), (18, 19), (19, 20), # Pinky
-    (5, 9), (9, 13), (13, 17)              # Connections between fingers
+    (5, 9), (9, 13), (13, 17)              # Palm cross-connections
 ]
 
+
 class HandTracker:
+    """
+    Wraps the MediaPipe HandLandmarker to detect and track hands in video frames.
+    Runs in VIDEO mode for continuous, timestamp-based tracking.
+    """
+
     def __init__(
         self,
-        model_path: str = None,
+        model_path: Optional[str] = None,
         max_hands: int = 2,
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
     ) -> None:
-        
+        """
+        Load the MediaPipe ``.task`` model and configure the hand landmarker.
+
+        :param model_path: Path to the ``.task`` model file. If ``None``,
+            reads ``HAND_DETECTION_MODEL`` from the environment.
+        :type model_path: str, optional
+        :param max_hands: Maximum number of hands to detect simultaneously.
+        :type max_hands: int
+        :param min_detection_confidence: Minimum confidence score for initial detection.
+        :type min_detection_confidence: float
+        :param min_tracking_confidence: Minimum confidence score to continue tracking.
+        :type min_tracking_confidence: float
+        :raises ValueError: If ``model_path`` is None and the env variable is not set.
+        """
         if model_path is None:
             model_relative = os.getenv("HAND_DETECTION_MODEL")
             if model_relative is None:
                 raise ValueError("HAND_DETECTION_MODEL not defined in .env")
-            
             model_path = AppPaths.path(model_relative)
-            print(model_path)
-        
-        self.max_hands = max_hands
-        self.min_detection_confidence = min_detection_confidence
-        self.min_tracking_confidence = min_tracking_confidence
+
+        self.max_hands: int = max_hands
+        self.min_detection_confidence: float = min_detection_confidence
+        self.min_tracking_confidence: float = min_tracking_confidence
 
         base_options = python.BaseOptions(model_asset_path=model_path)
-
-        # load model .task
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
             running_mode=vision.RunningMode.VIDEO,
@@ -53,132 +68,160 @@ class HandTracker:
             min_hand_presence_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
-
         self.detector = vision.HandLandmarker.create_from_options(options)
 
+        # Filled after each call to find_hands(); consumed by find_position / export_landmarks
+        self.results: Any = None
+
     @staticmethod
-    def normalizedToPixelCoordenates(frame: np.ndarray, landmark: Any):
+    def _normalized_to_pixel_coords(frame: np.ndarray, landmark: Any) -> tuple:
+        """
+        Convert a landmark's normalized [0, 1] coordinates to pixel coordinates,
+        clamped to the frame boundaries.
+
+        :param frame: The image used to determine pixel dimensions.
+        :type frame: np.ndarray
+        :param landmark: MediaPipe landmark object with ``.x`` and ``.y`` attributes.
+        :type landmark: Any
+        :return: Tuple ``(pixel_x, pixel_y)``.
+        :rtype: tuple[int, int]
+        """
         h, w, _ = frame.shape
-        #px, py = int(landmark.x * w), int(landmark.y * h)
-        px = min(max(int(landmark.x * w), 0), w-1)
-        py = min(max(int(landmark.y * h), 0), h-1)
+        px = min(max(int(landmark.x * w), 0), w - 1)
+        py = min(max(int(landmark.y * h), 0), h - 1)
         return px, py
-    
-    def findHands(self, frame: np.ndarray, draw: bool = True) -> np.ndarray:
-    
-        # Resize to improve acceleration
+
+    def find_hands(self, frame: np.ndarray, draw: bool = True) -> np.ndarray:
+        """
+        Detect hands in the frame and store the results for subsequent calls.
+
+        Internally downscales frames wider than 640 px for faster inference,
+        then maps landmarks back to the original resolution for drawing.
+
+        :param frame: RGB image as a NumPy array.
+        :type frame: np.ndarray
+        :param draw: Whether to draw skeleton connections and landmark dots on the frame.
+        :type draw: bool
+        :return: The (optionally annotated) frame.
+        :rtype: np.ndarray
+        """
         h, w = frame.shape[:2]
+
+        # Downscale for faster inference; landmarks are still mapped to original size
         if w > 640:
             scale = 640 / w
-            new_w, new_h = 640, int(h * scale)
-            frame_small = cv2.resize(frame, (new_w, new_h))
+            frame_small = cv2.resize(frame, (640, int(h * scale)))
         else:
             frame_small = frame
-            scale = 1.0
 
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_small)
-
-        # Detect
         timestamp_ms = int(time.time() * 1000)
-        detection_result = self.detector.detect_for_video(mp_image, timestamp_ms)
-        self.results = detection_result
+        self.results = self.detector.detect_for_video(mp_image, timestamp_ms)
 
-        if draw and detection_result.hand_landmarks:
-            for hand_landmarks in detection_result.hand_landmarks:
+        if draw and self.results.hand_landmarks:
+            for hand_landmarks in self.results.hand_landmarks:
+
                 # Draw Hand connections between points
-                for connection in HAND_CONNECTIONS:
-                    start_idx, end_idx = connection
+                for start_idx, end_idx in HAND_CONNECTIONS:
                     start = hand_landmarks[start_idx]
                     end = hand_landmarks[end_idx]
 
                     # Scale coordinates to the original frame size
-                    x1 = int(start.x * w)
-                    y1 = int(start.y * h)
-                    x2 = int(end.x * w)
-                    y2 = int(end.y * h)
-
+                    x1, y1 = int(start.x * w), int(start.y * h)
+                    x2, y2 = int(end.x * w), int(end.y * h)
                     cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-                # Draw landmark points
+                 # Draw landmark points
                 for lm in hand_landmarks:
-                    x = int(lm.x * w)
-                    y = int(lm.y * h)
-                    cv2.circle(frame, (x, y), 5, (255, 0, 255), cv2.FILLED)
+                    cv2.circle(frame, (int(lm.x * w), int(lm.y * h)), 5, (255, 0, 255), cv2.FILLED)
 
         return frame
 
-    def findPosition(
+    def find_position(
         self, frame: np.ndarray, hand_id: int = 0, draw: bool = True
     ) -> List[List[int]]:
-        lmList = []
-        if hasattr(self, 'results') and self.results and self.results.hand_landmarks:
+        """
+        Return pixel positions for each landmark of the specified hand.
+
+        Must be called after :meth:`find_hands`.
+
+        :param frame: RGB image used for coordinate scaling and optional drawing.
+        :type frame: np.ndarray
+        :param hand_id: Index of the hand to query (0 = first detected).
+        :type hand_id: int
+        :param draw: Whether to draw landmark circles on the frame.
+        :type draw: bool
+        :return: List of ``[landmark_id, pixel_x, pixel_y]`` for each of the 21 landmarks,
+            or an empty list if the requested hand was not detected.
+        :rtype: list[list[int]]
+        """
+        lm_list: List[List[int]] = []
+        if self.results and self.results.hand_landmarks:
             if hand_id >= len(self.results.hand_landmarks):
-                return lmList
-            
-            hand_landmarks = self.results.hand_landmarks[hand_id]
-            for id, lm in enumerate(hand_landmarks):
-                px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
-                lmList.append([id, px, py])
+                return lm_list
+
+            for idx, lm in enumerate(self.results.hand_landmarks[hand_id]):
+                px, py = HandTracker._normalized_to_pixel_coords(frame, lm)
+                lm_list.append([idx, px, py])
                 if draw:
                     cv2.circle(frame, (px, py), 6, (255, 255, 0), cv2.FILLED)
-        return lmList
+        return lm_list
 
-    def exportLandmarks(
+    def export_landmarks(
         self, frame: np.ndarray, hand_id: int = 0, draw: bool = True
     ) -> List[List[float]]:
-        landmarksPosition = []
-        if hasattr(self, 'results') and self.results and self.results.hand_landmarks:
-            if hand_id >= len(self.results.hand_landmarks):
-                return landmarksPosition
-            
-            hand_landmarks = self.results.hand_landmarks[hand_id]
-            for lm in hand_landmarks:
-                landmarksPosition.append([lm.x, lm.y, lm.z])
-                if draw:
-                    px, py = HandTracker.normalizedToPixelCoordenates(frame, lm)
-                    cv2.circle(frame, (px, py), 6, (255, 255, 0), cv2.FILLED)
-        return landmarksPosition
+        """
+        Return the normalized (x, y, z) coordinates for each landmark of the specified hand.
 
-    def getHandedness(self) -> list:
-        """Retrun which hand is left or right"""
-        if hasattr(self, 'results') and self.results and self.results.handedness:
+        Must be called after :meth:`find_hands`. Values are in the [0, 1] range as
+        provided by MediaPipe (z is relative depth, not absolute).
+
+        :param frame: RGB image used for coordinate scaling and optional drawing.
+        :type frame: np.ndarray
+        :param hand_id: Index of the hand to query (0 = first detected).
+        :type hand_id: int
+        :param draw: Whether to draw landmark circles on the frame.
+        :type draw: bool
+        :return: List of ``[x, y, z]`` per landmark (21 entries), or ``[]`` if not detected.
+        :rtype: list[list[float]]
+        """
+        landmarks_position: List[List[float]] = []
+        if self.results and self.results.hand_landmarks:
+            if hand_id >= len(self.results.hand_landmarks):
+                return landmarks_position
+
+            for lm in self.results.hand_landmarks[hand_id]:
+                landmarks_position.append([lm.x, lm.y, lm.z])
+                if draw:
+                    px, py = HandTracker._normalized_to_pixel_coords(frame, lm)
+                    cv2.circle(frame, (px, py), 6, (255, 255, 0), cv2.FILLED)
+        return landmarks_position
+
+    def get_handedness(self) -> List[str]:
+        """
+        Return the handedness label for each detected hand.
+
+        Must be called after :meth:`find_hands`.
+
+        :return: List of ``'Left'`` / ``'Right'`` strings, one per detected hand.
+        :rtype: list[str]
+        """
+        if self.results and self.results.handedness:
             return [hand[0].category_name for hand in self.results.handedness]
         return []
- 
+
+
 if __name__ == "__main__":
-    
     from window.webcam_window import WebcamWindow
-    from window.video_window import VideoWindow
-    from window.image_window import ImageWindow
     from PySide6.QtWidgets import QApplication
     from core.processors.hand_tracking_processor import HandTrackingProcessor
     import sys
 
     app = QApplication(sys.argv)
-    fps = int(os.getenv("CAPTURE_FRAME_RATE_FPS", 0))
-    duration = int(os.getenv("CAPTURE_DURATION_SECONDS", 0))
-    n_frames = fps * duration
-
     window = WebcamWindow(
-        width=480, 
-        height=320, 
-        #width=1280, 
-        #height=720, 
+        width=480,
+        height=320,
         frame_processor=HandTrackingProcessor()
     )
-
-    """
-    window = VideoWindow(
-        "test_video.mp4",
-        width=1280, 
-        height=720, 
-        frame_processor=HandTrackingProcessor(
-            n_frames=n_frames or 30
-        )
-    )
-    """
-
     window.show()
     sys.exit(app.exec())
-
-    
