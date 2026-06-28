@@ -27,6 +27,25 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Besides the Python packages in `requirements.txt`, the GUI relies on PySide6 (Qt6), which needs certain **system libraries** for the Qt platform plugin to load correctly. These are not Python packages and must be installed through your OS package manager.
+
+**Linux (Ubuntu/Debian):**
+
+If the application fails to start with an error such as `qt.qpa.plugin: Could not load the Qt platform plugin "xcb"`, you are likely missing some system libraries. Installing the following usually resolves it:
+
+​```bash
+sudo apt install libxcb-cursor-dev libxcb-xinerama0 libxkbcommon-x11-0
+​```
+
+> The exact set of required libraries may vary between distributions and versions. In some setups only `libxcb-cursor-dev` is needed, while others require additional `xcb` packages. If the issue persists, the error message usually indicates which library is missing.
+
+**Windows / macOS:**
+
+Generally no extra system libraries are needed; `pip install PySide6` is enough.
+
+For platform-specific details, see the official PySide6 documentation:
+https://doc.qt.io/qtforpython-6/gettingstarted/index.html
+
 ---
 
 ## Project Structure
